@@ -86,45 +86,138 @@ class Tree implements vscode.TreeDataProvider<Node> {
   refresh() { this.ev.fire(undefined); }
   getTreeItem(n: Node) { return n; }
   async getChildren(n?: Node) {
-    try { return await this.load(n); } catch (e: any) { const x = new Node(String(e?.message ?? e).split('\n')[0], 'error'); x.iconPath = new vscode.ThemeIcon('warning'); return [x]; }
+    try { const shared = n && await sharedChildren(n); return shared ?? await this.load(n); } catch (e: any) { const x = new Node(String(e?.message ?? e).split('\n')[0], 'error'); x.iconPath = icon('warning', 'list.errorForeground'); return [x]; }
   }
-  async resolveTreeItem(item: vscode.TreeItem, n: Node) { if (this.resolve) await this.resolve(n); return n; }
+  async resolveTreeItem(item: vscode.TreeItem, n: Node) { if (this.resolve) await this.resolve(n); else await resolveCommitTooltip(n); return n; }
 }
 const trees: Tree[] = [];
 function refreshAll() { trees.forEach(t => t.refresh()); }
 function icon(id: string, color?: string) { return new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined); }
+const cardCache = new Map<string, Promise<{ d?: P.CommitDetails; avatar?: string; branches: string[]; web?: string }>>();
+async function avatarFor(r: string, web: string | undefined, d: P.CommitDetails): Promise<string | undefined> {
+  const quick = P.noreplyAvatar(d.email); if (quick) return quick;
+  const m = web && /^https:\/\/github\.com\/([^/]+\/[^/]+)$/.exec(web); if (!m) return;
+  const url = (await Promise.race([gh(r, 'api', `repos/${m[1]}/commits/${d.sha}`, '--jq', '.author.avatar_url // empty').catch(() => ''), new Promise<string>(res => setTimeout(() => res(''), 2500))])).trim();
+  return url ? `${url}${url.includes('?') ? '&' : '?'}s=32` : undefined;
+}
+/** Commit details for hovers and tooltips: one `git show` per sha, cached. */
+function commitInfo(r: string, sha: string) {
+  const key = `${r}\0${sha}`; let p = cardCache.get(key);
+  if (!p) {
+    p = (async () => {
+      const [out, br, web] = await Promise.all([
+        git(r, 'show', '--diff-merges=first-parent', '-M', `--format=${P.DETAILS_FORMAT}`, '--numstat', '--summary', sha).catch(() => ''),
+        git(r, 'branch', '-r', '--contains', sha, '--format=%(refname:short)').catch(() => ''),
+        webUrl(r).catch(() => undefined)]);
+      const d = P.parseCommitDetails(out);
+      const gh = web && /^https:\/\/github\.com\//.test(web) ? web : undefined;
+      return { d, web: gh, branches: P.parseNameList(br).filter(b => !b.endsWith('/HEAD')), avatar: d ? await avatarFor(r, gh, d) : undefined };
+    })();
+    cardCache.set(key, p); if (cardCache.size > 500) cardCache.delete(cardCache.keys().next().value!);
+  }
+  return p;
+}
+async function commitCard(r: string, sha: string, extra = ''): Promise<vscode.MarkdownString | undefined> {
+  const i = await commitInfo(r, sha); if (!i.d) return;
+  const copy = `command:gitKitchen.commit.copySha?${encodeURIComponent(JSON.stringify([{ sha: i.d.sha }]))}`;
+  const md = new vscode.MarkdownString(P.commitCardMarkdown(i.d, { web: i.web, avatar: i.avatar, remoteBranches: i.branches, copyCommand: copy }) + extra, true);
+  md.isTrusted = true; md.supportHtml = true; return md;
+}
+async function resolveCommitTooltip(n: Node) {
+  if ((n.kind === 'commit' || n.kind === 'historyCommit') && n.data?.sha && n.data.root) { const md = await commitCard(n.data.root, n.data.sha); if (md) n.tooltip = md; }
+}
 function commitNode(r: string, c: P.Commit, file?: string): Node {
   const n = new Node(c.subject, file ? 'historyCommit' : 'commit', { root: r, sha: c.sha, file, commit: c });
   n.description = `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`;
-  n.tooltip = new vscode.MarkdownString(`**${c.subject}**\n\n${c.author} <${c.email}> · ${new Date(c.date).toLocaleString()}\n\n\`${c.sha}\``);
   n.iconPath = icon('git-commit');
   n.command = { command: 'gitKitchen.openCommitDiff', title: 'Open Changes', arguments: [{ root: r, sha: c.sha, file }] };
   return n;
 }
 
 // ---------- Commits ----------
-let commitLimit = 50;
 async function loadCommits(n?: Node): Promise<Node[]> {
   const r = await root();
   if (!n) {
-    const cs = P.parseLog(await git(r, 'log', '-n', String(commitLimit + 1), `--format=${P.LOG_FORMAT}`, 'HEAD').catch(() => ''));
-    const nodes = cs.slice(0, commitLimit).map(c => { const x = commitNode(r, c); x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed; x.command = undefined; x.id = `c:${c.sha}`; return x; });
-    if (cs.length > commitLimit) { const m = new Node('Load more…', 'loadMore'); m.iconPath = icon('ellipsis'); m.command = { command: 'gitKitchen.commits.loadMore', title: 'Load more' }; nodes.push(m); }
-    return nodes;
+    const opNode = await operationNode(r);
+    const nodes = await refCommits(r, 'HEAD', 'commits');
+    return opNode ? [opNode, ...nodes] : nodes;
   }
-  if (n.kind === 'commit') return commitFiles(r, n.data.sha);
+  if (n.kind.startsWith('operation')) return (n.data.conflicts as string[]).map(f => {
+    const x = new Node(path.basename(f), 'conflictFile', { root: r, file: f }); x.description = path.dirname(f) === '.' ? '' : path.dirname(f);
+    x.resourceUri = vscode.Uri.file(path.join(r, f)); x.iconPath = icon('warning', 'list.warningForeground');
+    x.command = { command: 'vscode.open', title: 'Open', arguments: [x.resourceUri] }; return x; });
   return [];
 }
-async function commitFiles(r: string, sha: string): Promise<Node[]> {
-  const outp = await git(r, 'diff-tree', '--no-commit-id', '--root', '-r', '-M', '--name-status', sha);
+async function gitDir(r: string): Promise<string> { return (await git(r, 'rev-parse', '--absolute-git-dir')).trim(); }
+async function operationState(r: string): Promise<P.OperationState | undefined> {
+  const fs = await import('fs'); const d = await gitDir(r);
+  return P.detectOperation(f => { try { return fs.readFileSync(path.join(d, f), 'utf8').trim(); } catch { return undefined; } });
+}
+async function operationNode(r: string): Promise<Node | undefined> {
+  const op = await operationState(r);
+  await vscode.commands.executeCommand('setContext', 'gitKitchen.operation', op?.kind ?? '');
+  if (!op) return;
+  const conflicts = P.parseNameList(await git(r, 'diff', '--name-only', '--diff-filter=U').catch(() => ''));
+  const x = new Node(op.label, `operation.${op.kind}`, { root: r, op, conflicts }, conflicts.length ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
+  x.description = conflicts.length ? `${conflicts.length} ${conflicts.length === 1 ? 'conflict' : 'conflicts'} remaining` : 'no conflicts, ready to continue';
+  x.tooltip = `${op.label} in progress.\nContinue${op.canSkip ? ', Skip' : ''} or Abort from the row actions or its context menu.`;
+  x.iconPath = conflicts.length ? icon('warning', 'list.warningForeground') : icon(op.kind === 'merge' ? 'git-merge' : 'git-commit');
+  x.id = 'operation'; return x;
+}
+async function runOperation(action: 'continue' | 'skip' | 'abort') {
+  const r = await root(); const op = await operationState(r);
+  if (!op) { vscode.window.showInformationMessage('No merge, rebase, cherry-pick or revert is in progress.'); refreshAll(); return; }
+  if (action === 'skip' && !op.canSkip) return;
+  if (action === 'abort' && !await confirm(`Abort the ${op.kind}? Changes made while resolving it will be discarded.`, 'Abort')) return;
+  if (action === 'continue') {
+    const left = P.parseNameList(await git(r, 'diff', '--name-only', '--diff-filter=U').catch(() => ''));
+    if (left.length) { vscode.window.showWarningMessage(`${left.length} conflicted ${left.length === 1 ? 'file' : 'files'} left. Resolve and stage them first.`); return; }
+  }
+  const args = op.kind === 'merge' && action === 'continue' ? ['commit', '--no-edit'] : [op.kind, `--${action}`];
+  await withProgress(`${action[0].toUpperCase()}${action.slice(1)} ${op.kind}`, () => git(r, '-c', 'core.editor=true', ...args)).finally(refreshAll);
+}
+const refLimits = new Map<string, number>();
+/** Commits reachable from `ref`, newest first, `limit` at a time with a load-more row. `key` identifies the list. */
+async function refCommits(r: string, ref: string, key: string): Promise<Node[]> {
+  const limit = refLimits.get(key) ?? 50;
+  const cs = P.parseLog(await git(r, 'log', '-n', String(limit + 1), `--format=${P.LOG_FORMAT}`, ref, '--').catch(() => ''));
+  const nodes = cs.slice(0, limit).map(c => { const x = commitNode(r, c); x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed; x.command = undefined; x.id = `${key}:${c.sha}`; return x; });
+  if (cs.length > limit) { const m = new Node('Load more…', 'loadMore', { key }); m.iconPath = icon('ellipsis'); m.id = `${key}:more`; m.command = { command: 'gitKitchen.commits.loadMore', title: 'Load more', arguments: [key] }; nodes.push(m); }
+  return nodes;
+}
+/** Children shared by every view: a commit's files and the folders inside them. */
+async function sharedChildren(n: Node): Promise<Node[] | undefined> {
+  if (n.kind === 'commit' && n.collapsibleState !== vscode.TreeItemCollapsibleState.None) return commitFiles(n.data.root, n.data.sha, n.id ?? n.data.sha);
+  if (n.kind === 'fileFolder') return n.data.children;
+  return undefined;
+}
+const CHANGE_SCHEME = 'gitkitchen-change';
+const STATUS_INFO: Record<string, { color: string; tip: string }> = {
+  M: { color: 'gitDecoration.modifiedResourceForeground', tip: 'Modified' }, A: { color: 'gitDecoration.addedResourceForeground', tip: 'Added' },
+  D: { color: 'gitDecoration.deletedResourceForeground', tip: 'Deleted' }, R: { color: 'gitDecoration.renamedResourceForeground', tip: 'Renamed' },
+  C: { color: 'gitDecoration.addedResourceForeground', tip: 'Copied' }, T: { color: 'gitDecoration.modifiedResourceForeground', tip: 'Type changed' },
+};
+function filesAsTree() { return vscode.workspace.getConfiguration('gitKitchen').get<string>('files.layout', 'tree') === 'tree'; }
+async function commitFiles(r: string, sha: string, key = sha): Promise<Node[]> {
+  const files = P.parseNameStatus(await git(r, 'diff-tree', '--no-commit-id', '--root', '-r', '-M', '--name-status', sha));
   const parent = await parentOf(r, sha);
-  return P.parseNameList(outp).map(l => {
-    const parts = l.split('\t'); const f = parts[parts.length - 1]; const old = parts.length > 2 ? parts[1] : undefined; const st = parts[0][0];
-    const x = new Node(path.basename(f), 'commitFile', { root: r, sha, file: f });
-    x.description = `${path.dirname(f) === '.' ? '' : path.dirname(f)} ${st}`.trim(); x.resourceUri = vscode.Uri.file(path.join(r, f)); x.iconPath = vscode.ThemeIcon.File;
-    x.command = { command: 'gitKitchen.diffFile', title: 'Open Changes', arguments: [r, st === 'A' || parent === EMPTY_TREE ? undefined : parent, st === 'D' ? '' : sha, f, old] };
+  const leaf = (f: P.ChangedFile, label: string): Node => {
+    const x = new Node(label, 'commitFile', { root: r, sha, file: f.path });
+    const dir = path.dirname(f.path);
+    x.description = filesAsTree() ? (f.oldPath ? `← ${f.oldPath}` : '') : `${dir === '.' ? '' : dir}${f.oldPath ? ` ← ${f.oldPath}` : ''}`;
+    x.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: path.posix.join('/', r.split(path.sep).join('/'), f.path), query: f.status });
+    x.iconPath = vscode.ThemeIcon.File; x.id = `${key}:f:${f.path}`;
+    x.tooltip = `${f.path}${f.oldPath ? `\nrenamed from ${f.oldPath}` : ''}\n${STATUS_INFO[f.status]?.tip ?? f.status}`;
+    x.command = { command: 'gitKitchen.diffFile', title: 'Open Changes', arguments: [r, f.status === 'A' || parent === EMPTY_TREE ? undefined : parent, f.status === 'D' ? '' : sha, f.path, f.oldPath] };
     return x;
+  };
+  if (!filesAsTree()) return files.map(f => leaf(f, path.basename(f.path)));
+  const build = (es: P.TreeEntry<P.ChangedFile>[]): Node[] => es.map(e => {
+    if (e.kind === 'leaf') return leaf(e.item, e.name);
+    const d = new Node(e.name, 'fileFolder', { root: r, children: build(e.children) }, vscode.TreeItemCollapsibleState.Expanded);
+    d.iconPath = vscode.ThemeIcon.Folder; d.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: '/' + e.path }); d.id = `${key}:d:${e.path}`; return d;
   });
+  return build(P.buildPathTree(files, f => f.path));
 }
 
 // ---------- PR cache (for badges) ----------
@@ -137,6 +230,13 @@ async function listPrs(r: string, force = false): Promise<P.PullRequest[]> {
 
 // ---------- Branches ----------
 let selectedForCompare: string | undefined;
+let branchPrCache: { root: string; at: number; prs: P.BranchPrInfo[] } | undefined;
+/** Open and merged PRs for all branches, in one gh call, cached for a minute. */
+async function branchPrs(r: string): Promise<P.BranchPrInfo[]> {
+  if (branchPrCache && branchPrCache.root === r && Date.now() - branchPrCache.at < 60_000) return branchPrCache.prs;
+  const prs = P.parseBranchPrs(await gh(r, 'pr', 'list', '--state', 'all', '--limit', '200', '--json', 'number,state,isDraft,headRefName').catch(() => '[]'));
+  branchPrCache = { root: r, at: Date.now(), prs }; return prs;
+}
 function treeLayout(): boolean { return vscode.workspace.getConfiguration('gitKitchen').get<string>('branches.layout', 'tree') === 'tree'; }
 /** Turn grouped entries into folder nodes (or a flat list) using `leaf` to build each item node. */
 function layoutNodes<T>(items: T[], nameOf: (t: T) => string, leaf: (t: T, label: string) => Node, folderKind: string): Node[] {
@@ -149,14 +249,40 @@ function layoutNodes<T>(items: T[], nameOf: (t: T) => string, leaf: (t: T, label
   return build(P.groupByPrefix(items, nameOf));
 }
 async function loadBranches(n?: Node): Promise<Node[]> {
+  if (n?.data?.branch) return refCommits(n.data.root, `refs/heads/${n.data.branch.name}`, `b:${n.data.branch.name}`);
   if (n) return n.data.children ?? [];
   const r = await root();
   const bs = P.parseBranches(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=${P.BRANCH_FORMAT}`, 'refs/heads'));
   let prs: P.PullRequest[] = []; try { prs = await listPrs(r); } catch { /* gh missing or not GitHub */ }
+  const cfg = vscode.workspace.getConfiguration('gitKitchen'); const main = cfg.get<string>('mainBranch', 'main');
+  const opts: P.StalenessOptions = { agingDays: cfg.get('staleness.agingDays', 14), staleDays: cfg.get('staleness.staleDays', 60), behindCount: cfg.get('staleness.behindCount', 20) };
+  const hasMain = bs.some(b => b.name === main);
+  const [statePrs, mergedOut] = await Promise.all([branchPrs(r), hasMain ? git(r, 'branch', '--merged', main, '--format=%(refname:short)').catch(() => '') : Promise.resolve('')]);
+  merged = new Set(P.parseNameList(mergedOut).filter(x => x !== main)); mergedBase = main; allPrs = statePrs;
+  await Promise.all(bs.map(async b => {
+    if (b.current) return;
+    let behind = b.behind;
+    if (!b.upstream && hasMain && b.name !== main) behind = +(await git(r, 'rev-list', '--count', `${b.name}..${main}`).catch(() => '0')).trim() || 0;
+    fresh.set(b.name, P.freshness(behind, b.time, Date.now(), opts));
+  }));
   const current = bs.filter(b => b.current);
   const rest = layoutNodes(bs.filter(b => !b.current), b => b.name, (b, label) => branchNode(r, b, prs, label), 'branchFolder');
   return [...current.map(b => branchNode(r, b, prs, b.name)), ...rest];
 }
+const fresh = new Map<string, ReturnType<typeof P.freshness>>();
+let merged = new Set<string>(); let mergedBase = 'main'; let allPrs: P.BranchPrInfo[] = [];
+const FRESH_COLOR: Record<P.Freshness, string> = { fresh: 'gitKitchen.branchFreshForeground', aging: 'gitKitchen.branchAgingForeground', stale: 'gitKitchen.branchStaleForeground' };
+const BRANCH_SCHEME = 'gitkitchen-branch';
+const activeLabelEmitter = new vscode.EventEmitter<undefined>();
+const activeLabelDecorations: vscode.FileDecorationProvider = {
+  onDidChangeFileDecorations: activeLabelEmitter.event,
+  provideFileDecoration(uri) {
+    if (uri.scheme === CHANGE_SCHEME) { const st = STATUS_INFO[uri.query]; return st ? { badge: uri.query, tooltip: st.tip, color: new vscode.ThemeColor(st.color), propagate: false } : undefined; }
+    if (uri.scheme !== BRANCH_SCHEME || uri.query !== 'current') return;
+    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorActiveLabel', false)) return;
+    return { color: new vscode.ThemeColor('gitKitchen.activeBranchForeground'), propagate: false };
+  },
+};
 function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
   const pr = prs.find(p => p.headRefName === b.name);
   const hasWt = !!b.worktreePath && !b.current;
@@ -164,9 +290,12 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const track = [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : '', b.gone ? 'gone' : ''].filter(Boolean).join(' ');
   const up = b.upstream ? `${track ? track + ' ' : ''}${b.upstream}` : 'no upstream';
   x.description = [up, b.time ? P.relativeTime(b.time) : '', pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean).join(' · ');
-  x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}`;
-  x.iconPath = b.current ? icon('check') : icon(hasWt ? 'repo' : 'git-branch');
-  x.id = `branch:${b.name}`;
+  const f = b.current ? undefined : fresh.get(b.name);
+  const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
+  x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}${st.state ? '\n' + st.state : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}${f ? '\n' + f.reason : ''}${b.gone ? '\nupstream gone' : ''}`;
+  x.iconPath = icon(st.icon, b.current ? 'gitKitchen.activeBranchForeground' : b.gone ? 'gitKitchen.branchGoneForeground' : f ? FRESH_COLOR[f.state] : undefined);
+  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: b.current ? 'current' : '' });
+  x.id = `branch:${b.name}`; x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
   return x;
 }
 function bn(n: Node): string { return n?.data?.branch?.name ?? n?.data?.name; }
@@ -197,6 +326,12 @@ function registerBranches() {
     if (b.current) await withProgress('Pulling', () => git(r, 'pull', '--ff-only'));
     else { if (!b.upstream) throw new Error(`${b.name} has no upstream.`); const [rem, ...rest] = b.upstream.split('/'); await withProgress('Pulling', () => git(r, 'fetch', rem, `${rest.join('/')}:${b.name}`)); }
     refreshAll(); });
+  cmd('gitKitchen.branch.push', async (n?: Node) => { const r = await root(); const b = (n?.data?.branch as P.Branch | undefined)?.name ?? (await git(r, 'branch', '--show-current')).trim();
+    const up = (await git(r, 'rev-parse', '--abbrev-ref', `${b}@{upstream}`).catch(() => '')).trim();
+    const remotes = P.parseRemotes(await git(r, 'remote', '-v')).map(x => x.name);
+    const remote = up ? up.split('/')[0] : remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0] : await vscode.window.showQuickPick(remotes, { title: `Push ${b} to` });
+    if (!remote) return; if (!await confirm(`Push ${b} to ${remote}?`, 'Push')) return;
+    await withProgress(`Pushing ${b}`, () => git(r, 'push', ...(up ? [] : ['-u']), remote, b)); refreshAll(); });
   cmd('gitKitchen.branch.fetch', async (n: Node) => { const r = await root(); const b = n.data.branch as P.Branch; const up = b.upstream?.split('/');
     await withProgress('Fetching', () => up ? git(r, 'fetch', up[0], up.slice(1).join('/')) : git(r, 'fetch', '--all')); refreshAll(); });
   cmd('gitKitchen.branch.setUpstream', async (n: Node) => { const r = await root(); const up = P.parseNameList(await git(r, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes')).filter(x => !x.endsWith('/HEAD'));
@@ -209,7 +344,7 @@ function registerBranches() {
     const name = b.upstream ? b.upstream.split('/').slice(1).join('/') : b.name; await vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(r, rem)}/tree/${name}`)); });
   cmd('gitKitchen.branch.copyName', async (n: Node) => { await vscode.env.clipboard.writeText(bn(n)); });
   cmd('gitKitchen.branch.compareUpstream', async (n: Node) => { const r = await root(); const b = n.data.branch as P.Branch; if (!b.upstream) throw new Error('No upstream.'); await compareRefs(r, b.upstream, b.name, `${b.upstream} ↔ ${b.name}`); });
-  cmd('gitKitchen.branch.compareHead', async (n: Node) => { const r = await root(); await compareRefs(r, 'HEAD', bn(n), `HEAD ↔ ${bn(n)}`); });
+  cmd('gitKitchen.branch.compareHead', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim() || 'HEAD'; await compareRefs(r, 'HEAD', bn(n), `${cur} ↔ ${bn(n)}`); });
   cmd('gitKitchen.branch.compareBase', async (n: Node) => { const r = await root(); const base = (await git(r, 'merge-base', 'HEAD', bn(n))).trim(); await compareRefs(r, base, bn(n), `common base ↔ ${bn(n)}`); });
   cmd('gitKitchen.branch.compareWorking', async (n: Node) => { const r = await root(); await compareRefs(r, bn(n), undefined, `${bn(n)} ↔ working tree`); });
   cmd('gitKitchen.branch.selectForCompare', async (n: Node) => { selectedForCompare = bn(n); await vscode.commands.executeCommand('setContext', 'gitKitchen.hasCompareSelection', true);
@@ -224,9 +359,10 @@ async function loadRemotes(n?: Node): Promise<Node[]> {
   if (n.kind === 'remote') {
     const rows = P.parseNameList(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=%(refname:short)${P.SEP}%(committerdate:unix)`, `refs/remotes/${n.data.name}`))
       .map(l => l.split(P.SEP)).filter(([b]) => !b.endsWith('/HEAD') && b !== n.data.name).map(([b, t]) => ({ full: b, short: b.slice(n.data.name.length + 1), time: +t }));
-    return layoutNodes(rows, x => x.short, (b, label) => { const x = new Node(label, 'remoteBranch', { root: r, name: b.full }); x.iconPath = icon('git-branch'); x.tooltip = b.full; x.description = b.time ? P.relativeTime(b.time) : ''; x.id = `rb:${b.full}`; return x; }, 'remoteFolder');
+    return layoutNodes(rows, x => x.short, (b, label) => { const x = new Node(label, 'remoteBranch', { root: r, name: b.full }, vscode.TreeItemCollapsibleState.Collapsed); x.iconPath = icon('git-branch'); x.tooltip = b.full; x.description = b.time ? P.relativeTime(b.time) : ''; x.id = `rb:${b.full}`; return x; }, 'remoteFolder');
   }
   if (n.kind === 'remoteFolder') return n.data.children;
+  if (n.kind === 'remoteBranch') return refCommits(r, `refs/remotes/${n.data.name}`, `rb:${n.data.name}`);
   return [];
 }
 function registerRemotes() {
@@ -243,7 +379,7 @@ async function loadStashes(n?: Node): Promise<Node[]> {
   const r = await root();
   if (!n) return P.parseStashes(await git(r, 'stash', 'list', `--format=${P.STASH_FORMAT}`)).map(s => {
     const x = new Node(s.message, 'stash', { root: r, stash: s, sha: s.sha }, vscode.TreeItemCollapsibleState.Collapsed);
-    x.description = `${s.ref} · ${P.relativeTime(Date.parse(s.date) / 1000)}`; x.iconPath = icon('archive'); return x; });
+    x.description = `${s.ref} · ${P.relativeTime(Date.parse(s.date) / 1000)}`; x.iconPath = icon('git-stash'); return x; });
   if (n.kind === 'stash') {
     const s = n.data.stash as P.Stash;
     return P.parseNameList(await git(r, 'stash', 'show', '--name-status', '--include-untracked', s.ref).catch(() => git(r, 'stash', 'show', '--name-status', s.ref))).map(l => {
@@ -308,7 +444,7 @@ const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: 
 const sameCommitDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerLane: vscode.OverviewRulerLane.Center });
 const statusItem = vscode.window.createStatusBarItem('gitKitchen.blame', vscode.StatusBarAlignment.Left, 50);
 statusItem.name = 'Git Kitchen Blame';
-let lastChanges: P.LineChanges | undefined; let lastSame: number[] = [];
+let statusSha: string | undefined; let lastChanges: P.LineChanges | undefined; let lastSame: number[] = [];
 function setSameCommit(ed: vscode.TextEditor, lines: P.BlameLine[], line1: number) {
   lastSame = vscode.workspace.getConfiguration('gitKitchen').get('blame.highlightSameCommit', true) ? P.sameCommitLines(lines, line1) : [];
   ed.setDecorations(sameCommitDeco, lastSame.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
@@ -335,6 +471,8 @@ async function updateBlame() {
   const sb = cfg.get('statusBar.enabled', true) ? P.statusBarText(bl) : undefined;
   if (sb && bl) {
     statusItem.text = sb; statusItem.tooltip = bl.uncommitted ? 'Uncommitted changes' : `${bl.summary}\n${bl.sha.slice(0, 8)} · click to open the commit changes`;
+    if (!bl.uncommitted) { const sha = bl.sha; commitCard(b.r, sha, '\n\n---\n\nClick to open the commit changes').then(md => { if (md && statusSha === sha) statusItem.tooltip = md; }); }
+    statusSha = bl.uncommitted ? undefined : bl.sha;
     statusItem.command = bl.uncommitted ? undefined : { title: 'Open Changes', command: 'gitKitchen.openCommitDiff', arguments: [{ root: b.r, sha: bl.sha, file: bl.filename || rel(b.r, ed.document.fileName) }] };
     statusItem.show();
   } else statusItem.hide();
@@ -387,12 +525,12 @@ const hoverProvider: vscode.HoverProvider = {
       if (h) hunk = `\n\n---\n\n**Changes in this commit**\n\n\`\`\`diff\n${h.split('\n').slice(0, 40).join('\n')}\n\`\`\``;
     }
     const a = (o: any) => encodeURIComponent(JSON.stringify([o]));
-    const md = new vscode.MarkdownString(
-      `**${bl.summary}**\n\n${bl.author} · ${new Date(bl.authorTime * 1000).toLocaleString()} (${P.relativeTime(bl.authorTime)})\n\n\`${bl.sha.slice(0, 8)}\`\n\n` +
+    const links = '\n\n---\n\n' +
       `[Open Changes](command:gitKitchen.openCommitDiff?${a({ root: b.r, sha: bl.sha, file })}) · ` +
       `[Compare with Working File](command:gitKitchen.compareCommitWorking?${a({ root: b.r, sha: bl.sha, file: rel(b.r, doc.fileName) })}) · ` +
       `[All Files in Commit](command:gitKitchen.openCommitDiff?${a({ root: b.r, sha: bl.sha })}) · ` +
-      `[Copy Link](command:gitKitchen.copyCommitLink?${a({ root: b.r, sha: bl.sha, file, line: bl.line })})` + hunk);
+      `[Copy Link](command:gitKitchen.copyCommitLink?${a({ root: b.r, sha: bl.sha, file, line: bl.line })})` + hunk;
+    const md = await commitCard(b.r, bl.sha, links) ?? new vscode.MarkdownString(`**${bl.summary}**` + links);
     md.isTrusted = true; return new vscode.Hover(md);
   }
 };
@@ -442,7 +580,7 @@ function registerHistory() {
   cmd('gitKitchen.commit.copyLink', async (n: Node) => { const url = n.data.file ? P.commitLineUrl(await webUrl(n.data.root), n.data.sha, n.data.file, 1).replace(/#L1$/, '') : `${await webUrl(n.data.root)}/commit/${n.data.sha}`;
     await vscode.env.clipboard.writeText(url); vscode.window.setStatusBarMessage(`Copied ${url}`, 4000); });
   cmd('gitKitchen.commit.openOnGitHub', async (n: Node) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(n.data.root)}/commit/${n.data.sha}`)));
-  cmd('gitKitchen.commit.copySha', async (n: Node) => vscode.env.clipboard.writeText(n.data.sha));
+  cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
 }
 
@@ -459,7 +597,7 @@ async function loadWorktrees(n?: Node): Promise<Node[]> {
       const m = /(\d+)\s+(\d+)/.exec(t); if (m) ab = [+m[2] ? `↑${m[2]}` : '', +m[1] ? `↓${m[1]}` : ''].filter(Boolean).join(' ');
     }
     x.description = [dirty ? '●' : '', ab, w.locked ? 'locked' : '', w.prunable ? 'missing' : '', path.relative(r, w.path) || '.'].filter(Boolean).join('  ');
-    x.tooltip = `${w.path}${dirty ? '\nHas uncommitted changes' : ''}`; x.iconPath = icon(w.main ? 'home' : 'repo', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined);
+    x.tooltip = `${w.path}${dirty ? '\nHas uncommitted changes' : ''}`; x.iconPath = icon(w.locked ? 'lock' : 'worktree', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined);
     return x;
   }));
 }
@@ -505,7 +643,7 @@ async function loadPrs(n?: Node): Promise<Node[]> {
   if (!n) return (await listPrs(r, true)).map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
     x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = `${p.title}\n${p.url}\nby ${p.author}\nmergeable: ${p.mergeable}`;
-    x.iconPath = icon(p.isDraft ? 'git-pull-request-draft' : 'git-pull-request', p.checks === 'fail' ? 'testing.iconFailed' : p.checks === 'pass' ? 'testing.iconPassed' : undefined); return x; });
+    x.iconPath = p.isDraft ? icon('git-pull-request-draft', 'descriptionForeground') : icon('git-pull-request', 'gitKitchen.prOpenForeground'); return x; });
   if (n.kind === 'pr') {
     const j = JSON.parse(await gh(r, 'pr', 'view', String(n.data.pr.number), '--json', 'commits'));
     return (j.commits ?? []).map((c: any) => commitNode(r, { sha: c.oid, short: c.oid.slice(0, 7), author: c.authors?.[0]?.name ?? '', email: c.authors?.[0]?.email ?? '', date: c.committedDate, subject: c.messageHeadline, parents: [] }));
@@ -544,21 +682,48 @@ function registerPrs() {
 }
 
 // ---------- Dual remote ----------
+async function dualPair(r: string): Promise<{ pair?: { source: string; target: string }; remotes: string[] }> {
+  const cfg = vscode.workspace.getConfiguration('gitKitchen', vscode.Uri.file(r));
+  const remotes = P.parseRemotes(await git(r, 'remote', '-v')).map(x => x.name);
+  const up = (await git(r, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}').catch(() => '')).trim();
+  const upRemote = up ? remotes.filter(x => up.startsWith(x + '/')).sort((a, b) => b.length - a.length)[0] : undefined;
+  return { remotes, pair: P.pickDualPair(remotes, { source: cfg.get<string>('dualRemote.source', ''), target: cfg.get<string>('dualRemote.target', '') }, upRemote) };
+}
+async function saveDualPair(r: string, source: string, target: string) {
+  const c = vscode.workspace.getConfiguration('gitKitchen', vscode.Uri.file(r));
+  const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(r));
+  const where = folder ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Workspace;
+  await c.update('dualRemote.source', source, where); await c.update('dualRemote.target', target, where); setDualHeader({ source, target }); refreshAll();
+}
+let dualView: vscode.TreeView<Node> | undefined; let dualAsked = false;
+function setDualHeader(pair?: { source: string; target: string }) {
+  if (!dualView) return;
+  dualView.title = pair ? `${pair.source} → ${pair.target}` : 'Compare Remotes';
+  dualView.description = pair ? `On ${pair.source}, not on ${pair.target}` : undefined;
+}
 async function loadDual(n?: Node): Promise<Node[]> {
   if (n) return [];
-  const r = await root(); const cfg = vscode.workspace.getConfiguration('gitKitchen');
-  const other = cfg.get<string>('dualRemote.target', ''); const branch = cfg.get<string>('mainBranch', 'main'); const src = cfg.get<string>('dualRemote.source', 'origin');
-  if (!other) { const x = new Node('Choose the client remote…', 'hint'); x.command = { command: 'gitKitchen.dual.chooseRemote', title: 'Choose' }; x.iconPath = icon('settings-gear'); return [x]; }
-  const range = `${other}/${branch}..${src}/${branch}`;
-  const cs = P.parseLog(await git(r, 'log', '-n', '300', `--format=${P.LOG_FORMAT}`, range));
-  if (!cs.length) { const x = new Node(`${src}/${branch} is fully on ${other}`, 'hint'); x.iconPath = icon('pass'); return [x]; }
+  const r = await root(); const branch = vscode.workspace.getConfiguration('gitKitchen').get<string>('mainBranch', 'main');
+  const { pair, remotes } = await dualPair(r);
+  setDualHeader(pair);
+  if (remotes.length < 2) return [];
+  if (!pair) {
+    if (!dualAsked) { dualAsked = true; setTimeout(() => vscode.commands.executeCommand('gitKitchen.dual.chooseRemote'), 0); }
+    const x = new Node('Choose which remotes to compare…', 'hint'); x.command = { command: 'gitKitchen.dual.chooseRemote', title: 'Choose' }; x.iconPath = icon('filter'); return [x];
+  }
+  const range = `${pair.target}/${branch}..${pair.source}/${branch}`;
+  const cs = P.parseLog(await git(r, 'log', '-n', '300', `--format=${P.LOG_FORMAT}`, range).catch(() => ''));
+  if (!cs.length) { const x = new Node(`Everything on ${pair.source}/${branch} is on ${pair.target}`, 'hint'); x.iconPath = icon('pass'); return [x]; }
   return cs.map(c => commitNode(r, c));
 }
 function registerDual() {
-  cmd('gitKitchen.dual.chooseRemote', async () => { const r = await root(); const rs = P.parseRemotes(await git(r, 'remote', '-v')).map(x => x.name);
-    const src = await vscode.window.showQuickPick(rs, { title: 'Source remote (ours, e.g. origin)' }); if (!src) return;
-    const tgt = await vscode.window.showQuickPick(rs.filter(x => x !== src), { title: 'Target remote (the client)' }); if (!tgt) return;
-    const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('dualRemote.source', src, vscode.ConfigurationTarget.Workspace); await c.update('dualRemote.target', tgt, vscode.ConfigurationTarget.Workspace); refreshAll(); });
+  cmd('gitKitchen.dual.chooseRemote', async () => { const r = await root(); const { remotes, pair } = await dualPair(r);
+    if (remotes.length < 2) { vscode.window.showInformationMessage('This repository has only one remote.'); return; }
+    const pairs = remotes.flatMap(a => remotes.filter(b => b !== a).map(b => ({ label: `On ${a}, not on ${b}`, source: a, target: b, picked: pair?.source === a && pair?.target === b })));
+    const pick = await vscode.window.showQuickPick(pairs, { title: 'Compare Remotes', placeHolder: 'Show commits that are on one remote but not on another' }); if (!pick) return;
+    await saveDualPair(r, pick.source, pick.target); });
+  cmd('gitKitchen.dual.swap', async () => { const r = await root(); const { pair } = await dualPair(r); if (!pair) return vscode.commands.executeCommand('gitKitchen.dual.chooseRemote');
+    await saveDualPair(r, pair.target, pair.source); });
   cmd('gitKitchen.dual.fetch', async () => { const r = await root(); await withProgress('Fetching all remotes', () => git(r, 'fetch', '--all', '--prune')); refreshAll(); });
 }
 
@@ -689,24 +854,31 @@ function registerLens() {
 export async function activate(c: vscode.ExtensionContext) {
   ctx = c;
   c.subscriptions.push(out, vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RefContent()));
-  const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true }); c.subscriptions.push(v); return v; };
+  const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true }); c.subscriptions.push(v); views[id] = v; return v; };
   view('gitKitchen.branches', new Tree(loadBranches));
   view('gitKitchen.remotes', new Tree(loadRemotes));
   view('gitKitchen.commits', new Tree(loadCommits));
   view('gitKitchen.stashes', new Tree(loadStashes, resolveStash));
   view('gitKitchen.worktrees', new Tree(loadWorktrees));
   view('gitKitchen.prs', new Tree(loadPrs));
-  view('gitKitchen.dual', new Tree(loadDual));
+  dualView = view('gitKitchen.dual', new Tree(loadDual));
   view('gitKitchen.merged', new Tree(loadMerged));
   view('gitKitchen.todos', new Tree(loadTodos));
   historyTree = new Tree(loadHistory); historyView = view('gitKitchen.history', historyTree);
   registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerPrs(); registerDual(); registerMerged(); registerExplorer();
-  cmd('gitKitchen.commits.loadMore', async () => { commitLimit += 50; refreshAll(); });
+  cmd('gitKitchen.commits.loadMore', async (key = 'commits') => { refLimits.set(key, (refLimits.get(key) ?? 50) + 50); refreshAll(); });
   cmd('gitKitchen.diffFile', async (r: string, l: string | undefined, rt: string | undefined, f: string, old?: string) => {
     await diffFile(r, l, rt, f, old); });
   registerNav(); registerAnnotations(); registerLens();
   c.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen')) { refreshAll(); scheduleBlame(); lensEmitter.fire(); } }));
-  cmd('gitKitchen.refresh', async () => { prCache = undefined; refreshAll(); });
+  cmd('gitKitchen.refresh', async () => { prCache = undefined; branchPrCache = undefined; refreshAll(); updateRemoteContext(); });
+  cmd('gitKitchen.operation.continue', () => runOperation('continue'));
+  cmd('gitKitchen.operation.skip', () => runOperation('skip'));
+  cmd('gitKitchen.operation.abort', () => runOperation('abort'));
+  c.subscriptions.push(vscode.window.registerFileDecorationProvider(activeLabelDecorations), activeLabelEmitter,
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen.branches.colorActiveLabel')) activeLabelEmitter.fire(undefined); }));
+  await updateRemoteContext();
+  await watchGitDir();
   // Refresh trees when the repo's HEAD or refs change.
   const w = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,refs/**,logs/refs/stash,worktrees/**}');
   let t: NodeJS.Timeout | undefined; const bump = () => { if (t) clearTimeout(t); t = setTimeout(refreshAll, 500); };
@@ -716,7 +888,27 @@ export async function activate(c: vscode.ExtensionContext) {
   scheduleBlame();
   maybeOpenDefaultWorkspace();
 }
+async function updateRemoteContext() {
+  const r = await currentRoot(); const n = r ? P.parseRemotes(await git(r, 'remote', '-v').catch(() => '')).length : 0;
+  await vscode.commands.executeCommand('setContext', 'gitKitchen.multiRemote', n > 1);
+  if (r) setDualHeader((await dualPair(r).catch(() => ({ pair: undefined }))).pair);
+}
+let gitDirWatcher: vscode.Disposable | undefined;
+/** Watch the repository's own git dir (and the common dir for worktrees), which may live outside the workspace. */
+async function watchGitDir() {
+  const r = await currentRoot(); if (!r) return;
+  const d = await gitDir(r).catch(() => ''); if (!d) return;
+  const common = path.resolve(r, (await git(r, 'rev-parse', '--git-common-dir').catch(() => d)).trim());
+  gitDirWatcher?.dispose();
+  let t: NodeJS.Timeout | undefined;
+  const bump = () => { if (t) clearTimeout(t); t = setTimeout(() => { refreshAll(); updateRemoteContext(); }, 300); };
+  const ws = [vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(d), '{HEAD,index,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,rebase-merge,rebase-merge/**,rebase-apply,rebase-apply/**}'))];
+  ws.push(vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(common), '{config,packed-refs,refs/**}')));
+  const subs = ws.flatMap(w => [w, w.onDidChange(bump), w.onDidCreate(bump), w.onDidDelete(bump)]);
+  gitDirWatcher = vscode.Disposable.from(...subs); ctx.subscriptions.push(gitDirWatcher);
+}
 export function deactivate() {}
 
 // Exposed for the smoke test.
-export const _test = { status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+const views: Record<string, vscode.TreeView<Node>> = {};
+export const _test = { views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };

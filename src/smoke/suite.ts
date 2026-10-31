@@ -27,19 +27,19 @@ export async function run() {
     assert.deepStrictEqual(missing, []);
   });
   await check('branches tree groups by prefix with current first', async () => {
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main', 'feature', 'merged-one']);
-    assert.ok(n[0].contextValue.includes('current')); assert.strictEqual(n[1].contextValue, 'branchFolder');
-    const kids = await t.loadBranches(n[1]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main', 'chore', 'feature', 'old', 'merged-one']);
+    assert.ok(n[0].contextValue.includes('current')); assert.strictEqual(n[2].contextValue, 'branchFolder');
+    const kids = await t.loadBranches(n[2]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
     assert.ok(kids[0].contextValue.includes('worktree')); assert.match(String(kids[0].description), /no upstream · .*ago|just now/);
   });
   await check('branches list layout setting flattens', async () => {
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.layout', 'list', vscode.ConfigurationTarget.Global);
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label).sort(), ['feature/one', 'feature/two', 'main', 'merged-one']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label).sort(), ['chore/aging', 'feature/one', 'feature/two', 'main', 'merged-one', 'old/stale']);
     await c.update('branches.layout', undefined, vscode.ConfigurationTarget.Global);
   });
   await check('commits view lists commits and their files', async () => {
     const cs = await t.loadCommits(); assert.deepStrictEqual(cs.map((x: any) => x.label), ['Second commit', 'First commit']);
-    const files = await t.loadCommits(cs[1]); assert.strictEqual(files[0].label, 'a.ts'); assert.strictEqual(files[0].command.command, 'gitKitchen.diffFile');
+    const files = await t.commitFiles(root, cs[1].data.sha); assert.strictEqual(files[0].label, 'a.ts'); assert.strictEqual(files[0].command.command, 'gitKitchen.diffFile');
     await vscode.commands.executeCommand(files[0].command.command, ...files[0].command.arguments);
   });
   await check('stashes tree shows stash and its file', async () => {
@@ -134,7 +134,147 @@ export async function run() {
     await vscode.commands.executeCommand('gitKitchen.explorer.setDefaultWorkspace', vscode.Uri.file(wsf));
     await vscode.commands.executeCommand('gitKitchen.explorer.clearDefaultWorkspace', vscode.Uri.file(wsf)); fs.unlinkSync(wsf);
   });
+  const cp = require('child_process'); const fs = require('fs'); const os = require('os');
+  const sh = (cwd: string, ...a: string[]) => cp.execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', ...a], { cwd }).toString();
+  await check('branch icons: active pass-filled, freshness tints, tooltip numbers', async () => {
+    const n = await t.loadBranches();
+    assert.strictEqual(n[0].iconPath.id, 'pass-filled'); assert.strictEqual(n[0].iconPath.color.id, 'gitKitchen.activeBranchForeground');
+    const aging = (await t.loadBranches(n.find((x: any) => x.label === 'chore')))[0];
+    assert.strictEqual(aging.iconPath.color.id, 'gitKitchen.branchAgingForeground'); assert.match(aging.tooltip, /1 behind · last commit 20d ago · aging/);
+    const stale = (await t.loadBranches(n.find((x: any) => x.label === 'old')))[0];
+    assert.strictEqual(stale.iconPath.color.id, 'gitKitchen.branchStaleForeground'); assert.match(stale.tooltip, /last commit 90d ago · stale/);
+    const two = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[1];
+    assert.strictEqual(two.iconPath.color.id, 'gitKitchen.branchFreshForeground'); assert.match(two.tooltip, /0 behind · last commit 0d ago · fresh/);
+    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.strictEqual(one.iconPath.id, 'git-merge'); assert.match(one.tooltip, /Merged into main/);
+    assert.strictEqual(aging.iconPath.id, 'git-branch');
+  });
+  await check('manifest: icons, title-bar cap, danger group, colors, no activity bar', async () => {
+    const pj = ext.packageJSON.contributes; const nav: Record<string, number> = {};
+    for (const e of pj.menus['view/title']) if (String(e.group).startsWith('navigation')) nav[e.when] = (nav[e.when] ?? 0) + 1;
+    assert.ok(Object.values(nav).every(v => v <= 3), JSON.stringify(nav));
+    assert.ok(!pj.menus['view/item/context'].some((e: any) => /delete|remove|drop|abort/.test(e.command) && String(e.group).startsWith('inline')));
+    assert.ok(pj.menus['view/item/context'].filter((e: any) => /\.(delete|remove|drop)$|operation\.abort/.test(e.command)).every((e: any) => e.group.startsWith('9_danger')));
+    assert.ok(!pj.viewsContainers); assert.ok(pj.colors.some((c: any) => c.id === 'gitKitchen.branchStaleForeground' && c.defaults.dark === 'gitDecoration.ignoredResourceForeground'));
+    assert.strictEqual(pj.views.scm.find((v: any) => v.id === 'gitKitchen.dual').when, 'gitKitchen.multiRemote');
+    assert.ok(!JSON.stringify(pj).includes('git-branch-create'));
+    const inl = pj.menus['view/item/context'].filter((e: any) => e.group.startsWith('inline') && e.when.includes('gitKitchen.branches'));
+    const ids = inl.map((e: any) => e.command.replace('gitKitchen.', ''));
+    assert.deepStrictEqual(ids.sort(), ['branch.compareHead', 'branch.pull', 'branch.push', 'branch.switch', 'pr.create', 'pr.open'].sort());
+    const ctxKey = (cv: string) => inl.filter((e: any) => { const m = /viewItem =~ \/(.*?)\/(?:\)|$| )/g; let ok = true; let x; while ((x = m.exec(e.when))) if (!new RegExp(x[1]).test(cv)) ok = false; return ok; }).length;
+    for (const cv of ['branch.current.noWorktree.tracked', 'branch.current.noWorktree.tracked.hasPr', 'branch.noWorktree', 'branch.noWorktree.hasPr', 'branch.worktree.tracked']) assert.ok(ctxKey(cv) <= 3, cv + ' ' + ctxKey(cv));
+    assert.strictEqual(ctxKey('branch.current.noWorktree.tracked'), 3); assert.strictEqual(ctxKey('branch.noWorktree'), 3);
+  });
+  await check('one remote: Compare Remotes hidden and empty', async () => {
+    await t.updateRemoteContext(); assert.deepStrictEqual(await t.loadDual(), []); assert.strictEqual(t.dualTitle(), 'Compare Remotes');
+  });
+  await check('two remotes: auto pair, header, swap', async () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-remotes-'));
+    for (const r of ['origin', 'client-dpi']) { sh(base, 'init', '-q', '--bare', r); sh(root, 'remote', 'add', r, path.join(base, r)); sh(root, 'push', '-q', r, 'main'); }
+    sh(root, 'fetch', '-q', '--all'); sh(root, 'branch', '-q', '-f', 'origin-only', 'main'); sh(root, 'push', '-q', 'origin', 'origin-only:main');
+    await t.updateRemoteContext(); assert.strictEqual(t.dualTitle(), 'origin → client-dpi');
+    let rows = await t.loadDual(); assert.match(String(rows[0].label), /Everything on origin\/main is on client-dpi/);
+    sh(root, 'switch', '-q', 'origin-only'); fs.writeFileSync(path.join(root, 'o.txt'), 'o\n'); sh(root, 'add', 'o.txt'); sh(root, 'commit', '-qm', 'Only on origin'); sh(root, 'push', '-q', 'origin', 'origin-only:main'); sh(root, 'switch', '-q', 'main'); sh(root, 'fetch', '-q', '--all');
+    rows = await t.loadDual(); assert.deepStrictEqual(rows.map((x: any) => x.label), ['Only on origin']);
+    assert.strictEqual(t.dualDescription(), 'On origin, not on client-dpi');
+    await vscode.commands.executeCommand('gitKitchen.dual.swap'); assert.strictEqual(t.dualTitle(), 'client-dpi → origin');
+    rows = await t.loadDual(); assert.match(String(rows[0].label), /Everything on client-dpi\/main is on origin/);
+    const saved = vscode.workspace.getConfiguration('gitKitchen', vscode.Uri.file(root)).inspect('dualRemote.source');
+    assert.strictEqual(saved?.workspaceFolderValue ?? saved?.workspaceValue, 'client-dpi');
+    await vscode.commands.executeCommand('gitKitchen.dual.swap'); assert.strictEqual(t.dualTitle(), 'origin → client-dpi');
+    for (const r of ['origin', 'client-dpi']) sh(root, 'remote', 'remove', r);
+    const c = vscode.workspace.getConfiguration('gitKitchen', vscode.Uri.file(root));
+    for (const k of ['dualRemote.source', 'dualRemote.target']) { await c.update(k, undefined, vscode.ConfigurationTarget.WorkspaceFolder); }
+    await t.updateRemoteContext(); assert.strictEqual(t.dualTitle(), 'Compare Remotes');
+  });
+  await check('merge in progress: row, conflicts, continue', async () => {
+    sh(root, 'switch', '-q', '-c', 'conflict/x', 'main'); fs.writeFileSync(path.join(root, 'c.txt'), 'theirs\n'); sh(root, 'add', 'c.txt'); sh(root, 'commit', '-qm', 'Theirs');
+    sh(root, 'switch', '-q', 'main'); fs.writeFileSync(path.join(root, 'c.txt'), 'ours\n'); sh(root, 'add', 'c.txt'); sh(root, 'commit', '-qm', 'Ours');
+    try { sh(root, 'merge', 'conflict/x'); } catch { /* conflict expected */ }
+    assert.strictEqual((await t.operationState(root)).kind, 'merge');
+    let n = await t.loadCommits(); assert.strictEqual(n[0].contextValue, 'operation.merge'); assert.strictEqual(n[0].label, 'Merging'); assert.strictEqual(n[0].description, '1 conflict remaining');
+    assert.deepStrictEqual((await t.loadCommits(n[0])).map((x: any) => x.label), ['c.txt']);
+    await t.runOperation('continue'); assert.strictEqual((await t.operationState(root)).kind, 'merge');
+    fs.writeFileSync(path.join(root, 'c.txt'), 'both\n'); sh(root, 'add', 'c.txt');
+    n = await t.loadCommits(); assert.strictEqual(n[0].description, 'no conflicts, ready to continue');
+    await t.runOperation('continue'); assert.strictEqual(await t.operationState(root), undefined);
+    n = await t.loadCommits(); assert.strictEqual(n[0].contextValue, 'commit');
+  });
+  await check('rebase and cherry-pick detected, including in a worktree', async () => {
+    sh(root, 'switch', '-q', '-c', 'rb', 'main~1'); fs.writeFileSync(path.join(root, 'c.txt'), 'rb\n'); sh(root, 'add', 'c.txt'); sh(root, 'commit', '-qm', 'Rb');
+    try { sh(root, 'rebase', 'main'); } catch { /* conflict */ }
+    const op = await t.operationState(root); assert.strictEqual(op.kind, 'rebase'); assert.strictEqual(op.label, 'Rebasing rb (1/1)'); assert.ok(op.canSkip);
+    sh(root, 'rebase', '--abort'); sh(root, 'switch', '-q', 'main');
+    const wt = path.join(root, 'worktrees', 'feature-one');
+    fs.writeFileSync(path.join(wt, 'c.txt'), 'wt\n'); sh(wt, 'add', 'c.txt'); sh(wt, 'commit', '-qm', 'Wt');
+    try { sh(wt, 'cherry-pick', 'conflict/x'); } catch { /* conflict */ }
+    assert.strictEqual((await t.operationState(wt)).kind, 'cherry-pick'); assert.strictEqual(await t.operationState(root), undefined);
+    sh(wt, 'cherry-pick', '--abort');
+  });
+  await check('branch and remote rows expand to commits; commits expand to a compact file tree', async () => {
+    for (const f of ['pkg/sub/deep/y.ts', 'pkg/z.ts', 'docs/a/b/c.md']) { fs.mkdirSync(path.join(root, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(root, f), 'x\n'); }
+    sh(root, 'add', 'pkg', 'docs'); sh(root, 'commit', '-qm', 'Nested files (#7)');
+    const n = await t.loadBranches(); assert.strictEqual(n[0].collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
+    const cs = await t.loadBranches(n[0]); assert.strictEqual(cs[0].label, 'Nested files (#7)'); assert.strictEqual(cs[0].contextValue, 'commit');
+    const files = await t.commitFiles(root, cs[0].data.sha, cs[0].id);
+    assert.deepStrictEqual(files.map((x: any) => x.label), ['docs/a/b', 'pkg']);
+    const pkg = files[1].data.children; assert.deepStrictEqual(pkg.map((x: any) => x.label), ['sub/deep', 'z.ts']);
+    const leaf = pkg[1]; assert.strictEqual(leaf.resourceUri.query, 'A'); assert.strictEqual(leaf.command.command, 'gitKitchen.diffFile');
+    const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('files.layout', 'list', vscode.ConfigurationTarget.Global);
+    const flat = await t.commitFiles(root, cs[0].data.sha); assert.deepStrictEqual(flat.map((x: any) => x.label).sort(), ['c.md', 'y.ts', 'z.ts']);
+    await c.update('files.layout', undefined, vscode.ConfigurationTarget.Global);
+    t.refLimits.set('b:main', 2); const limited = await t.loadBranches(n[0]); assert.strictEqual(limited.length, 3); assert.strictEqual(limited[2].contextValue, 'loadMore');
+    await vscode.commands.executeCommand('gitKitchen.commits.loadMore', 'b:main'); assert.strictEqual(t.refLimits.get('b:main'), 52);
+  });
+  await check('commit card in hover, commit tooltip and status bar', async () => {
+    const sha = sh(root, 'rev-parse', 'HEAD').trim();
+    const md = await t.commitCard(root, sha); const v = md.value;
+    assert.match(v, /\*\*Smoke\*\*, .* \(/); assert.match(v, /`[0-9a-f]{7}`\]\(command:gitKitchen\.commit\.copySha/); assert.match(v, /\+3 ~0 -0/);
+    assert.match(v, /color:#3fb950;">\+3<\/span>/); assert.match(v, /Nested files/);
+    const n = (await t.loadCommits()).find((x: any) => x.contextValue === 'commit'); await t.resolveCommitTooltip(n); assert.match(n.tooltip.value, /\+3 ~0 -0/);
+    const doc = await vscode.workspace.openTextDocument(path.join(root, 'pkg', 'z.ts')); const ed = await vscode.window.showTextDocument(doc);
+    ed.selection = new vscode.Selection(0, 0, 0, 0); await t.updateBlame(); await new Promise(r => setTimeout(r, 300));
+    assert.match(String(t.statusTooltip()?.value ?? t.statusTooltip()), /Nested files/);
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, new vscode.Position(0, 0));
+    const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n'); assert.match(text, /\+3 ~0 -0/); assert.match(text, /Open Changes/);
+    await vscode.commands.executeCommand('gitKitchen.commit.copySha', { sha }); assert.strictEqual(await vscode.env.clipboard.readText(), sha);
+  });
+  if (process.env.GK_SHOTS) await screenshots(t, root);
   console.log('\n===== GIT KITCHEN SMOKE =====\n' + results.join('\n') + '\n========================');
   if (results.some(r => r.startsWith('FAIL'))) throw new Error('smoke failures');
   void api;
+}
+
+async function screenshots(t: any, root: string) {
+  const { execFileSync } = require('child_process'); const fs = require('fs');
+  const sh = (cwd: string, ...a: string[]) => execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', ...a], { cwd }).toString();
+  const out = process.env.GK_SHOTS!; fs.mkdirSync(out, { recursive: true });
+  const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+  // A merge with one conflict so the Commits view shows the in-progress row.
+  sh(root, 'checkout', '-qb', 'shot/conflict'); fs.writeFileSync(path.join(root, 'pkg', 'z.ts'), 'theirs\n'); sh(root, 'commit', '-qam', 'Conflicting change');
+  sh(root, 'checkout', '-q', 'main'); fs.writeFileSync(path.join(root, 'pkg', 'z.ts'), 'ours\n'); sh(root, 'commit', '-qam', 'Our change');
+  const fresh = sh(root, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Fresh work').trim(); sh(root, 'branch', 'feat/fresh', fresh);
+  try { sh(root, 'merge', 'shot/conflict'); } catch { /* conflict expected */ }
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  try { execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'code', 'windowmove', '0', '0', 'windowsize', '1600', '1000']); } catch { /* best effort */ }
+  await vscode.commands.executeCommand('workbench.view.scm');
+  for (const c of ['workbench.action.closeAuxiliaryBar', 'workbench.action.closePanel', 'notifications.clearAll']) { try { await vscode.commands.executeCommand(c); } catch { /* ignore */ } }
+  await wait(500);
+  try { execFileSync('xdotool', ['mousemove', '219', '400', 'mousedown', '1', 'mousemove', '400', '400', 'mousemove', '600', '400', 'mouseup', '1']); } catch { /* best effort */ }
+  for (const id of ['gitKitchen.remotes', 'gitKitchen.stashes', 'gitKitchen.worktrees', 'gitKitchen.prs', 'gitKitchen.merged', 'gitKitchen.todos', 'gitKitchen.history', 'workbench.scm', 'workbench.scm.history', 'workbench.scm.repositories']) {
+    try { await vscode.commands.executeCommand(`${id}.removeView`); } catch { /* not present */ }
+  }
+  await vscode.commands.executeCommand('gitKitchen.commits.focus'); await vscode.commands.executeCommand('gitKitchen.branches.focus');
+  await vscode.commands.executeCommand('gitKitchen.refresh'); await wait(1500);
+  const bv = t.views['gitKitchen.branches']; const top = await t.loadBranches();
+  for (const f of top.filter((x: any) => x.contextValue === 'branchFolder')) { try { await bv.reveal(f, { expand: true }); } catch { /* ignore */ } }
+  try { await bv.reveal(top[0], { select: true, focus: true }); } catch { /* ignore */ }
+  for (const [name, theme] of [['scm-dark', 'Default Dark Modern'], ['scm-light', 'Default Light Modern']]) {
+    await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Global); await wait(2500);
+    try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
+    if (process.env.GK_HOVER) { const [x, y] = process.env.GK_HOVER.split(','); execFileSync('xdotool', ['mousemove', x, y]); await wait(800); }
+    const file = path.join(out, `${name}.png`);
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'x11grab', '-video_size', '1600x1000', '-i', process.env.DISPLAY!, '-frames:v', '1', file]);
+    console.log('SHOT ' + file);
+  }
+  await vscode.workspace.getConfiguration('workbench').update('colorTheme', undefined, vscode.ConfigurationTarget.Global);
 }

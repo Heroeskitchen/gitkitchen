@@ -291,3 +291,131 @@ export function statusBarText(bl: BlameLine | undefined, nowMs = Date.now()): st
   if (!bl) return undefined;
   return bl.uncommitted ? '$(git-commit) You, uncommitted' : `$(git-commit) ${bl.author}, ${relativeTime(bl.authorTime, nowMs)}`;
 }
+
+export type Freshness = 'fresh' | 'aging' | 'stale';
+export interface StalenessOptions { agingDays: number; staleDays: number; behindCount: number }
+export const DEFAULT_STALENESS: StalenessOptions = { agingDays: 14, staleDays: 60, behindCount: 20 };
+/** Classify a branch by how far behind it is and how old its last commit is. */
+export function freshness(behind: number, lastCommitSec: number, nowMs = Date.now(), o: StalenessOptions = DEFAULT_STALENESS): { state: Freshness; ageDays: number; reason: string } {
+  const ageDays = Math.max(0, Math.floor((nowMs / 1000 - lastCommitSec) / 86400));
+  const state: Freshness = behind > o.behindCount || ageDays > o.staleDays ? 'stale' : behind >= 1 || ageDays >= o.agingDays ? 'aging' : 'fresh';
+  return { state, ageDays, reason: `${behind} behind · last commit ${ageDays}d ago · ${state}` };
+}
+
+export type OperationKind = 'merge' | 'rebase' | 'cherry-pick' | 'revert';
+export interface OperationState { kind: OperationKind; label: string; step?: number; total?: number; onto?: string; canSkip: boolean }
+/** Detect an in-progress operation from files in the git dir. `read` returns the file content (trimmed) or undefined when missing. */
+export function detectOperation(read: (rel: string) => string | undefined): OperationState | undefined {
+  const exists = (f: string) => read(f) !== undefined;
+  for (const dir of ['rebase-merge', 'rebase-apply']) {
+    if (dir === 'rebase-apply' && exists('rebase-apply/applying')) continue; // `git am`, not a rebase
+    if (exists(`${dir}/head-name`) || exists(`${dir}/onto`) || exists(`${dir}/msgnum`) || exists(`${dir}/next`)) {
+      const step = +(read(`${dir}/msgnum`) ?? read(`${dir}/next`) ?? '') || undefined;
+      const total = +(read(`${dir}/end`) ?? read(`${dir}/last`) ?? '') || undefined;
+      const head = (read(`${dir}/head-name`) ?? '').replace(/^refs\/heads\//, '');
+      return { kind: 'rebase', label: `Rebasing${head ? ' ' + head : ''}${step && total ? ` (${step}/${total})` : ''}`, step, total, onto: read(`${dir}/onto`), canSkip: true };
+    }
+  }
+  if (exists('MERGE_HEAD')) return { kind: 'merge', label: 'Merging', canSkip: false };
+  if (exists('CHERRY_PICK_HEAD')) return { kind: 'cherry-pick', label: `Cherry-picking ${read('CHERRY_PICK_HEAD')!.slice(0, 7)}`, canSkip: false };
+  if (exists('REVERT_HEAD')) return { kind: 'revert', label: `Reverting ${read('REVERT_HEAD')!.slice(0, 7)}`, canSkip: false };
+  return undefined;
+}
+
+/**
+ * Choose which two remotes to compare. A saved pair wins when both remotes still exist. With exactly two remotes the
+ * base is origin if present, otherwise the current branch's upstream remote, otherwise the first alphabetically.
+ * With three or more remotes and no saved pair the user has to choose, so this returns undefined.
+ */
+export function pickDualPair(remotes: string[], saved: { source?: string; target?: string }, upstreamRemote?: string): { source: string; target: string } | undefined {
+  const rs = [...new Set(remotes)];
+  if (rs.length < 2) return undefined;
+  if (saved.source && saved.target && saved.source !== saved.target && rs.includes(saved.source) && rs.includes(saved.target)) return { source: saved.source, target: saved.target };
+  if (rs.length !== 2) return undefined;
+  const sorted = [...rs].sort((a, b) => a.localeCompare(b));
+  const source = rs.includes('origin') ? 'origin' : upstreamRemote && rs.includes(upstreamRemote) ? upstreamRemote : sorted[0];
+  return { source, target: rs.find(r => r !== source)! };
+}
+
+export interface BranchPrInfo { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED'; isDraft: boolean; headRefName: string }
+export function parseBranchPrs(json: string): BranchPrInfo[] {
+  try { return (JSON.parse(json) as any[]).map(p => ({ number: p.number, state: String(p.state).toUpperCase() as BranchPrInfo['state'], isDraft: !!p.isDraft, headRefName: p.headRefName })); } catch { return []; }
+}
+/** The PR that best describes a branch: an open one first, then the most recent merged one. */
+export function prForBranch(prs: BranchPrInfo[], branch: string): BranchPrInfo | undefined {
+  const mine = prs.filter(p => p.headRefName === branch).sort((a, b) => b.number - a.number);
+  return mine.find(p => p.state === 'OPEN') ?? mine.find(p => p.state === 'MERGED');
+}
+/** Icon and state text for a branch row, by priority: active, open PR, merged, worktree, plain branch. */
+export function branchState(b: { current: boolean; pr?: BranchPrInfo; mergedInto?: string; worktree: boolean }): { icon: string; state?: string } {
+  if (b.current) return { icon: 'pass-filled', state: 'Current branch' };
+  if (b.pr?.state === 'OPEN') return b.pr.isDraft ? { icon: 'git-pull-request-draft', state: `PR #${b.pr.number} draft` } : { icon: 'git-pull-request', state: `PR #${b.pr.number} open` };
+  if (b.pr?.state === 'MERGED') return { icon: 'git-merge', state: `PR #${b.pr.number} merged` };
+  if (b.mergedInto) return { icon: 'git-merge', state: `Merged into ${b.mergedInto}` };
+  if (b.worktree) return { icon: 'worktree', state: 'Checked out in a worktree' };
+  return { icon: 'git-branch' };
+}
+
+/** Merge chains of folders that hold exactly one folder (a, a/b, a/b/c → "a/b/c"), like a compact explorer. */
+export function compactFolders<T>(entries: TreeEntry<T>[]): TreeEntry<T>[] {
+  return entries.map(e => {
+    if (e.kind === 'leaf') return e;
+    let f: TreeFolder<T> = e;
+    while (f.children.length === 1 && f.children[0].kind === 'folder') {
+      const c = f.children[0] as TreeFolder<T>; f = { kind: 'folder', name: `${f.name}/${c.name}`, path: c.path, children: c.children };
+    }
+    return { ...f, children: compactFolders(f.children) };
+  });
+}
+/** Build a compact folder tree of changed files by their path. */
+export function buildPathTree<T>(items: T[], pathOf: (t: T) => string, compact = true): TreeEntry<T>[] {
+  const t = groupByPrefix(items, pathOf); return compact ? compactFolders(t) : t;
+}
+export interface ChangedFile { status: string; path: string; oldPath?: string }
+/** Parse `git diff-tree --name-status` output. Status is the first letter (M, A, D, R, C, T). */
+export function parseNameStatus(out: string): ChangedFile[] {
+  return parseNameList(out).map(l => { const parts = l.split('\t'); return { status: parts[0][0], path: parts[parts.length - 1], oldPath: parts.length > 2 ? parts[1] : undefined }; });
+}
+
+export interface CommitDetails { sha: string; author: string; email: string; time: number; message: string; filesAdded: number; filesChanged: number; filesDeleted: number; additions: number; deletions: number }
+export const DETAILS_FORMAT = ['%H', '%an', '%ae', '%at', '%B'].join(SEP) + '\x1e';
+/** Parse `git show --format=DETAILS_FORMAT --numstat --summary <sha>`. */
+export function parseCommitDetails(out: string): CommitDetails | undefined {
+  const cut = out.indexOf('\x1e'); if (cut < 0) return undefined;
+  const [sha, author, email, time, ...rest] = out.slice(0, cut).split(SEP);
+  if (!sha) return undefined;
+  const s = parseCommitStats(out.slice(cut + 1));
+  return { sha: sha.trim(), author, email, time: +time, message: rest.join(SEP).trim(), ...s };
+}
+/** Count files added/changed/deleted and line additions/deletions from `--numstat --summary` output. */
+export function parseCommitStats(out: string): Pick<CommitDetails, 'filesAdded' | 'filesChanged' | 'filesDeleted' | 'additions' | 'deletions'> {
+  let files = 0, filesAdded = 0, filesDeleted = 0, additions = 0, deletions = 0;
+  for (const l of out.split('\n')) {
+    const m = /^(\d+|-)\t(\d+|-)\t/.exec(l);
+    if (m) { files++; if (m[1] !== '-') additions += +m[1]; if (m[2] !== '-') deletions += +m[2]; continue; }
+    if (/^ create mode /.test(l)) filesAdded++; else if (/^ delete mode /.test(l)) filesDeleted++;
+  }
+  return { filesAdded, filesDeleted, filesChanged: Math.max(0, files - filesAdded - filesDeleted), additions, deletions };
+}
+/** Link `#123` references to pull requests on the GitHub remote. */
+export function linkPrRefs(text: string, web?: string): string {
+  return web ? text.replace(/(^|[^\w&/])#(\d+)\b/g, (_m, pre, n) => `${pre}[#${n}](${web}/pull/${n})`) : text;
+}
+/** Avatar for a GitHub noreply address, without a network call. */
+export function noreplyAvatar(email: string): string | undefined {
+  const m = /^(\d+)\+[^@]+@users\.noreply\.github\.com$/i.exec(email); return m ? `https://avatars.githubusercontent.com/u/${m[1]}?s=32` : undefined;
+}
+function escapeMd(s: string): string { return s.replace(/([\\`*_{}[\]<>()!|])/g, '\\$1'); }
+/** Markdown for a commit card: avatar, author, relative and exact time, short sha, file and line stats, message, remote branches. */
+export function commitCardMarkdown(d: CommitDetails, o: { nowMs?: number; web?: string; avatar?: string; remoteBranches?: string[]; copyCommand?: string; dateText?: string } = {}): string {
+  const rel = relativeTime(d.time, o.nowMs);
+  const date = o.dateText ?? new Date(d.time * 1000).toLocaleString();
+  const who = `${o.avatar ? `<img src="${o.avatar}" width="16" height="16"/> ` : '$(account) '}**${escapeMd(d.author)}**`;
+  const sha = d.sha.slice(0, 7);
+  const shaPart = o.copyCommand ? `[$(git-commit) \`${sha}\`](${o.copyCommand} "Copy SHA")` : `$(git-commit) \`${sha}\``;
+  const files = `$(files) +${d.filesAdded} ~${d.filesChanged} -${d.filesDeleted}`;
+  const lines = `<span style="color:#3fb950;">+${d.additions}</span> <span style="color:#f85149;">-${d.deletions}</span>`;
+  const msg = linkPrRefs(escapeMd(d.message).replace(/\n/g, '  \n'), o.web);
+  const branches = (o.remoteBranches ?? []).map(b => `\`${b}\``).join(' ');
+  return `${who}, ${rel} (${date}) · ${shaPart} · ${files} · ${lines}\n\n${msg}${branches ? `\n\n$(cloud) ${branches}` : ''}`;
+}

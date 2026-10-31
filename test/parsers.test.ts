@@ -15,8 +15,8 @@ describe('branches', () => {
 
 describe('remotes', () => {
   it('merges fetch and push', () => {
-    const r = p.parseRemotes('origin\tgit@github.com:acme/x.git (fetch)\norigin\tgit@github.com:acme/x.git (push)\nclient\thttps://github.com/c/y (fetch)\n');
-    expect(r.map(x => x.name)).toEqual(['origin', 'client']);
+    const r = p.parseRemotes('origin\tgit@github.com:acme/x.git (fetch)\norigin\tgit@github.com:acme/x.git (push)\nupstream\thttps://github.com/c/y (fetch)\n');
+    expect(r.map(x => x.name)).toEqual(['origin', 'upstream']);
     expect(r[0].pushUrl).toContain('x.git');
   });
   it('builds web and line urls', () => {
@@ -199,5 +199,119 @@ describe('0.2.1 helpers', () => {
   it('blame porcelain keeps the original line', () => {
     const out = `${'a'.repeat(40)} 7 1 1\nauthor A\nauthor-time 5\nsummary s\nfilename f\n\tx\n`;
     expect(p.parseBlamePorcelain(out)[0].origLine).toBe(7);
+  });
+});
+
+describe('0.3.0 helpers', () => {
+  const day = 86400; const now = 1_000_000 * 1000;
+  const at = (d: number) => now / 1000 - d * day;
+  it('freshness classification and thresholds', () => {
+    expect(p.freshness(0, at(1), now).state).toBe('fresh');
+    expect(p.freshness(0, at(13), now).state).toBe('fresh');
+    expect(p.freshness(0, at(14), now).state).toBe('aging');
+    expect(p.freshness(1, at(0), now).state).toBe('aging');
+    expect(p.freshness(20, at(0), now).state).toBe('aging');
+    expect(p.freshness(21, at(0), now).state).toBe('stale');
+    expect(p.freshness(0, at(60), now).state).toBe('aging');
+    expect(p.freshness(0, at(61), now).state).toBe('stale');
+    expect(p.freshness(12, at(41), now).reason).toBe('12 behind · last commit 41d ago · aging');
+    expect(p.freshness(0, at(5), now, { agingDays: 3, staleDays: 4, behindCount: 0 }).state).toBe('stale');
+  });
+  const fsOf = (files: Record<string, string>) => (f: string) => files[f];
+  it('detects operations from git dir state', () => {
+    expect(p.detectOperation(fsOf({}))).toBeUndefined();
+    expect(p.detectOperation(fsOf({ MERGE_HEAD: 'abc' }))).toMatchObject({ kind: 'merge', canSkip: false });
+    expect(p.detectOperation(fsOf({ CHERRY_PICK_HEAD: 'abcdef1234' }))).toMatchObject({ kind: 'cherry-pick', label: 'Cherry-picking abcdef1' });
+    expect(p.detectOperation(fsOf({ REVERT_HEAD: '1234567890' }))).toMatchObject({ kind: 'revert', label: 'Reverting 1234567' });
+    expect(p.detectOperation(fsOf({ 'rebase-merge/head-name': 'refs/heads/feat/x', 'rebase-merge/msgnum': '2', 'rebase-merge/end': '5', 'rebase-merge/onto': 'ff' })))
+      .toMatchObject({ kind: 'rebase', label: 'Rebasing feat/x (2/5)', step: 2, total: 5, canSkip: true });
+    expect(p.detectOperation(fsOf({ 'rebase-apply/next': '1', 'rebase-apply/last': '3', 'rebase-apply/head-name': 'refs/heads/m' }))).toMatchObject({ kind: 'rebase', label: 'Rebasing m (1/3)' });
+    expect(p.detectOperation(fsOf({ 'rebase-apply/applying': '', 'rebase-apply/next': '1' }))).toBeUndefined();
+    expect(p.detectOperation(fsOf({ 'rebase-merge/head-name': 'refs/heads/a', MERGE_HEAD: 'x' }))!.kind).toBe('rebase');
+  });
+  it('picks the remote pair to compare', () => {
+    expect(p.pickDualPair(['origin'], {})).toBeUndefined();
+    expect(p.pickDualPair([], {})).toBeUndefined();
+    expect(p.pickDualPair(['origin', 'upstream'], {})).toEqual({ source: 'origin', target: 'upstream' });
+    expect(p.pickDualPair(['upstream', 'origin'], {}, 'upstream')).toEqual({ source: 'origin', target: 'upstream' });
+    expect(p.pickDualPair(['origin', 'a', 'b'], {})).toBeUndefined();
+    expect(p.pickDualPair(['origin', 'a', 'b'], { source: 'a', target: 'b' })).toEqual({ source: 'a', target: 'b' });
+    expect(p.pickDualPair(['origin', 'a'], { source: 'a', target: 'origin' })).toEqual({ source: 'a', target: 'origin' });
+    expect(p.pickDualPair(['origin', 'a'], { source: 'gone', target: 'a' })).toEqual({ source: 'origin', target: 'a' });
+    expect(p.pickDualPair(['origin', 'a'], { source: 'a', target: 'a' })).toEqual({ source: 'origin', target: 'a' });
+  });
+  it('picks the remote pair without an origin', () => {
+    expect(p.pickDualPair(['zeta', 'alpha'], {})).toEqual({ source: 'alpha', target: 'zeta' });
+    expect(p.pickDualPair(['zeta', 'alpha'], {}, 'zeta')).toEqual({ source: 'zeta', target: 'alpha' });
+    expect(p.pickDualPair(['zeta', 'alpha'], {}, 'missing')).toEqual({ source: 'alpha', target: 'zeta' });
+    expect(p.pickDualPair(['github', 'gitlab', 'company'], {})).toBeUndefined();
+  });
+});
+
+describe('branch state icons', () => {
+  const pr = (number: number, state: any, isDraft = false, headRefName = 'b'): p.BranchPrInfo => ({ number, state, isDraft, headRefName });
+  it('priority: active > open PR > merged > worktree > branch', () => {
+    expect(p.branchState({ current: true, pr: pr(1, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'pass-filled', state: 'Current branch' });
+    expect(p.branchState({ current: false, pr: pr(12, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-pull-request', state: 'PR #12 open' });
+    expect(p.branchState({ current: false, pr: pr(3, 'OPEN', true), worktree: false })).toEqual({ icon: 'git-pull-request-draft', state: 'PR #3 draft' });
+    expect(p.branchState({ current: false, pr: pr(4, 'MERGED'), worktree: true })).toEqual({ icon: 'git-merge', state: 'PR #4 merged' });
+    expect(p.branchState({ current: false, mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-merge', state: 'Merged into main' });
+    expect(p.branchState({ current: false, worktree: true })).toEqual({ icon: 'worktree', state: 'Checked out in a worktree' });
+    expect(p.branchState({ current: false, worktree: false })).toEqual({ icon: 'git-branch' });
+    expect(p.branchState({ current: false, pr: pr(5, 'CLOSED'), worktree: false })).toEqual({ icon: 'git-branch' });
+  });
+  it('picks the open PR, else the latest merged one', () => {
+    const prs = p.parseBranchPrs(JSON.stringify([{ number: 1, state: 'MERGED', isDraft: false, headRefName: 'b' }, { number: 7, state: 'MERGED', headRefName: 'b' }, { number: 9, state: 'OPEN', headRefName: 'c' }, { number: 2, state: 'CLOSED', headRefName: 'd' }]));
+    expect(p.prForBranch(prs, 'b')?.number).toBe(7); expect(p.prForBranch(prs, 'c')?.number).toBe(9);
+    expect(p.prForBranch(prs, 'd')).toBeUndefined(); expect(p.prForBranch(prs, 'z')).toBeUndefined();
+    expect(p.parseBranchPrs('not json')).toEqual([]);
+  });
+});
+
+describe('path tree', () => {
+  const shape = (es: p.TreeEntry<any>[]): any => es.map(e => e.kind === 'leaf' ? e.name : { [e.name]: shape(e.children) });
+  const files = ['README.md', 'src/a.ts', 'src/ui/b.ts', 'src/ui/c.ts', 'docs/guide/intro/x.md', 'docs/guide/intro/y.md', 'pkg/one/two/z.ts', 'pkg/top.ts'];
+  it('builds a compact folder tree with folders first', () => {
+    expect(shape(p.buildPathTree(files, f => f))).toEqual([
+      { 'docs/guide/intro': ['x.md', 'y.md'] }, { pkg: [{ 'one/two': ['z.ts'] }, 'top.ts'] }, { src: [{ ui: ['b.ts', 'c.ts'] }, 'a.ts'] }, 'README.md']);
+  });
+  it('can skip compaction', () => {
+    expect(shape(p.buildPathTree(['a/b/c.ts'], f => f, false))).toEqual([{ a: [{ b: ['c.ts'] }] }]);
+    expect(shape(p.buildPathTree(['a/b/c.ts'], f => f))).toEqual([{ 'a/b': ['c.ts'] }]);
+  });
+  it('compacted folder keeps the full path', () => {
+    const t = p.buildPathTree(['a/b/c.ts'], f => f)[0] as p.TreeFolder<string>; expect(t.path).toBe('a/b');
+  });
+  it('parses name-status with renames', () => {
+    expect(p.parseNameStatus('M\tsrc/a.ts\nR100\told.ts\tnew/n.ts\nA\tb.md\n')).toEqual([
+      { status: 'M', path: 'src/a.ts', oldPath: undefined }, { status: 'R', path: 'new/n.ts', oldPath: 'old.ts' }, { status: 'A', path: 'b.md', oldPath: undefined }]);
+  });
+  it('empty input', () => { expect(p.buildPathTree([], (f: string) => f)).toEqual([]); });
+});
+
+describe('commit card', () => {
+  const out = `${'d'.repeat(40)}\x1fAnn Lee\x1f12345+ann@users.noreply.github.com\x1f1000\x1ftwo (#12)\n\nBody line\x1e\n\n3\t0\td/x2\n1\t0\tnew\n0\t2\tx\n0\t1\ty\n5\t4\tsrc/a.ts\n-\t-\timg.png\n create mode 100644 d/x2\n create mode 100644 new\n delete mode 100644 x\n delete mode 100644 y\n`;
+  it('parses stats from numstat and summary', () => {
+    const d = p.parseCommitDetails(out)!;
+    expect(d).toMatchObject({ author: 'Ann Lee', time: 1000, message: 'two (#12)\n\nBody line', filesAdded: 2, filesDeleted: 2, filesChanged: 2, additions: 9, deletions: 7 });
+    expect(p.parseCommitStats('')).toEqual({ filesAdded: 0, filesChanged: 0, filesDeleted: 0, additions: 0, deletions: 0 });
+    expect(p.parseCommitDetails('garbage')).toBeUndefined();
+  });
+  it('links PR refs only with a GitHub remote', () => {
+    expect(p.linkPrRefs('Fix (#12) and #3, not a#4 or &#5', 'https://github.com/o/r')).toBe('Fix ([#12](https://github.com/o/r/pull/12)) and [#3](https://github.com/o/r/pull/3), not a#4 or &#5');
+    expect(p.linkPrRefs('Fix #12')).toBe('Fix #12');
+  });
+  it('noreply avatar', () => {
+    expect(p.noreplyAvatar('12345+ann@users.noreply.github.com')).toBe('https://avatars.githubusercontent.com/u/12345?s=32');
+    expect(p.noreplyAvatar('ann@example.com')).toBeUndefined();
+  });
+  it('card markdown', () => {
+    const d = p.parseCommitDetails(out)!;
+    const md = p.commitCardMarkdown(d, { nowMs: 1000 * 1000 + 7200 * 1000, web: 'https://github.com/o/r', avatar: 'https://a/x', remoteBranches: ['origin/main'], copyCommand: 'command:copy', dateText: 'DATE' });
+    expect(md).toContain('<img src="https://a/x"'); expect(md).toContain('**Ann Lee**'); expect(md).toContain('(DATE)');
+    expect(md).toContain('[$(git-commit) `ddddddd`](command:copy "Copy SHA")'); expect(md).toContain('+2 ~2 -2');
+    expect(md).toContain('color:#3fb950;">+9</span>'); expect(md).toContain('color:#f85149;">-7</span>');
+    expect(md).toContain('[#12](https://github.com/o/r/pull/12)'); expect(md).toContain('`origin/main`');
+    expect(p.commitCardMarkdown(d)).toContain('$(account) **Ann Lee**');
   });
 });
