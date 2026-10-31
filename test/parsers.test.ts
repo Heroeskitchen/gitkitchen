@@ -436,3 +436,12 @@ describe('hover cards', () => {
     expect(p.syncGroupCardMarkdown('Incoming', 3, 'main', 'origin/main')).toContain('3 commits to pull from `origin/main` into `main`');
   });
 });
+
+describe('isNewerVersion', () => {
+  it('compares x.y.z', () => {
+    expect(p.isNewerVersion('0.3.2', '0.3.1')).toBe(true);
+    expect(p.isNewerVersion('v0.4.0', '0.3.9')).toBe(true);
+    expect(p.isNewerVersion('0.3.1', '0.3.1')).toBe(false);
+    expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
+  });
+});

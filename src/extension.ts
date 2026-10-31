@@ -393,6 +393,28 @@ async function askName(prompt: string, value = ''): Promise<string | undefined> 
   return vscode.window.showInputBox({ prompt, value, validateInput: v => P.isValidRefName(v) ? undefined : 'Not a valid name' });
 }
 function registerBranches() {
+  cmd('gitKitchen.updateFromGitHub', async () => {
+    const current = String(ctx.extension.packageJSON.version);
+    const rel = await withProgress('Git Kitchen: checking for updates', async () => {
+      const res = await fetch('https://api.github.com/repos/Heroeskitchen/gitkitchen/releases/latest', { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'gitkitchen' } });
+      if (!res.ok) throw new Error(`Could not check for updates (GitHub said ${res.status}).`);
+      return res.json() as Promise<{ tag_name: string; assets: { name: string; browser_download_url: string }[] }>;
+    });
+    const latest = rel.tag_name.replace(/^v/, '');
+    if (!P.isNewerVersion(latest, current)) { vscode.window.showInformationMessage(`Git Kitchen ${current} is the latest version.`); return; }
+    const asset = rel.assets.find(a => a.name.endsWith('.vsix'));
+    if (!asset) throw new Error(`Release ${latest} has no .vsix file.`);
+    await withProgress(`Git Kitchen: installing ${latest}`, async () => {
+      const res = await fetch(asset.browser_download_url, { headers: { 'User-Agent': 'gitkitchen' } });
+      if (!res.ok) throw new Error(`Download failed (GitHub said ${res.status}).`);
+      const file = vscode.Uri.joinPath(ctx.globalStorageUri, asset.name);
+      await vscode.workspace.fs.createDirectory(ctx.globalStorageUri);
+      await vscode.workspace.fs.writeFile(file, new Uint8Array(await res.arrayBuffer()));
+      await vscode.commands.executeCommand('workbench.extensions.installExtension', file);
+    });
+    if ((await vscode.window.showInformationMessage(`Git Kitchen ${latest} is installed. Reload to use it.`, 'Reload Window')) === 'Reload Window')
+      await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  });
   cmd('gitKitchen.branch.switch', async (n: Node) => { const r = await root(); const b = n ? bn(n) : await pickBranch(r, 'Switch to', true); if (!b) return;
     if (b.includes('/') && (await git(r, 'branch', '-r', '--list', b)).trim()) await git(r, 'switch', '--track', b); else await git(r, 'switch', b); refreshAll(); });
   cmd('gitKitchen.branch.create', async (n?: Node) => { const r = await root(); const from = n ? bn(n) : 'HEAD'; const name = await askName(`New branch from ${from}`); if (!name) return;
