@@ -42,7 +42,10 @@ async function installWithCli(vsix: string): Promise<void> {
   const names = ['cursor', 'code', 'code-insiders'].map(n => win ? n + '.cmd' : n);
   const cli = dirs.flatMap(d => names.map(n => path.join(d, n))).find(f => fs.existsSync(f));
   if (!cli) throw new Error('Could not find the editor command line tool to install the update.');
-  await new Promise<void>((res, rej) => cp.execFile(win ? `"${cli}"` : cli, ['--install-extension', win ? `"${vsix}"` : vsix, '--force'], { shell: win }, (e, _o, err) => e ? rej(new Error(`Install failed: ${err || e.message}`)) : res()));
+  const done = (res: () => void, rej: (e: Error) => void) => (e: Error | null, _o: string, err: string) => e ? rej(new Error(`Install failed: ${err || e.message}`)) : res();
+  await new Promise<void>((res, rej) => win
+    ? cp.execFile(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${cli}" --install-extension "${vsix}" --force"`], { windowsVerbatimArguments: true }, done(res, rej))
+    : cp.execFile(cli, ['--install-extension', vsix, '--force'], done(res, rej)));
 }
 
 // ---------- content provider for file@ref ----------
