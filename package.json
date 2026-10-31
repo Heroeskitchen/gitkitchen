@@ -2,7 +2,7 @@
   "name": "gitkitchen",
   "displayName": "Git Kitchen",
   "description": "Branches, remotes, stashes, worktrees, pull requests, blame and history for the editor.",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "publisher": "heroeskitchen",
   "license": "MIT",
   "repository": {
@@ -382,6 +382,54 @@
         "icon": "$(history)"
       },
       {
+        "command": "gitKitchen.commits.loadMore",
+        "title": "Load More Commits",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.diffFile",
+        "title": "Open Changes",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.rev.prev",
+        "title": "Open Previous Revision",
+        "category": "Git Kitchen",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "gitKitchen.rev.next",
+        "title": "Open Next Revision",
+        "category": "Git Kitchen",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "gitKitchen.rev.choose",
+        "title": "Choose Revision…",
+        "category": "Git Kitchen",
+        "icon": "$(versions)"
+      },
+      {
+        "command": "gitKitchen.annotations.heatmap",
+        "title": "Toggle File Heatmap",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.annotations.changes",
+        "title": "Toggle File Changes…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.annotations.settings",
+        "title": "Open Annotation Settings",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.lens.blame",
+        "title": "Show File Blame",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.dual.chooseRemote",
         "title": "Choose Remotes to Compare…",
         "category": "Git Kitchen",
@@ -428,6 +476,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "gitKitchen.refresh",
+          "when": "view == gitKitchen.commits",
+          "group": "navigation@9"
+        },
         {
           "command": "gitKitchen.refresh",
           "when": "view == gitKitchen.branches",
@@ -828,9 +881,42 @@
           "group": "navigation@90"
         },
         {
-          "command": "gitKitchen.blame.toggleFile",
+          "command": "gitKitchen.rev.prev",
+          "when": "resourceScheme == file || resourceScheme == gitkitchen",
+          "group": "navigation@80"
+        },
+        {
+          "command": "gitKitchen.rev.choose",
+          "when": "resourceScheme == file || resourceScheme == gitkitchen",
+          "group": "navigation@81"
+        },
+        {
+          "command": "gitKitchen.rev.next",
+          "when": "resourceScheme == gitkitchen || isInDiffEditor && resourceScheme == file",
+          "group": "navigation@82"
+        },
+        {
+          "submenu": "gitKitchen.annotations",
           "when": "resourceScheme == file",
           "group": "navigation@91"
+        }
+      ],
+      "gitKitchen.annotations": [
+        {
+          "command": "gitKitchen.blame.toggleFile",
+          "group": "1@1"
+        },
+        {
+          "command": "gitKitchen.annotations.heatmap",
+          "group": "1@2"
+        },
+        {
+          "command": "gitKitchen.annotations.changes",
+          "group": "1@3"
+        },
+        {
+          "command": "gitKitchen.annotations.settings",
+          "group": "2@1"
         }
       ],
       "editor/context": [
@@ -1067,6 +1153,18 @@
           "when": "false"
         },
         {
+          "command": "gitKitchen.commits.loadMore",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.diffFile",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.lens.blame",
+          "when": "false"
+        },
+        {
           "command": "gitKitchen.merged.delete",
           "when": "false"
         },
@@ -1088,8 +1186,31 @@
         }
       ]
     },
+    "submenus": [
+      {
+        "id": "gitKitchen.annotations",
+        "label": "File Annotations",
+        "icon": "$(eye)"
+      }
+    ],
+    "colors": [
+      {
+        "id": "gitKitchen.currentLineBackground",
+        "description": "Background of the current line while line blame is shown.",
+        "defaults": {
+          "dark": "#ffffff0b",
+          "light": "#0000000a",
+          "highContrast": null,
+          "highContrastLight": null
+        }
+      }
+    ],
     "views": {
       "scm": [
+        {
+          "id": "gitKitchen.commits",
+          "name": "Commits"
+        },
         {
           "id": "gitKitchen.branches",
           "name": "Branches"
@@ -1145,6 +1266,39 @@
           "type": "boolean",
           "default": true,
           "description": "Show blame at the end of the current line."
+        },
+        "gitKitchen.blame.highlightLine": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the whole current line while line blame is shown."
+        },
+        "gitKitchen.branches.layout": {
+          "type": "string",
+          "enum": [
+            "tree",
+            "list"
+          ],
+          "default": "tree",
+          "description": "Show branches grouped into folders by their / prefix, or as a flat list."
+        },
+        "gitKitchen.heatmap.location": {
+          "type": "string",
+          "enum": [
+            "gutter",
+            "background"
+          ],
+          "default": "gutter",
+          "description": "Where the file heatmap is drawn."
+        },
+        "gitKitchen.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the last author and author count above the file and its functions and classes."
+        },
+        "gitKitchen.codeLens.symbols": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also show the code lens above functions and classes, not only at the top of the file."
         },
         "gitKitchen.blame.hover": {
           "type": "boolean",

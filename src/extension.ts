@@ -47,8 +47,8 @@ class RefContent implements vscode.TextDocumentContentProvider {
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 async function diffFile(r: string, left: string | undefined, right: string | undefined, file: string, oldFile?: string) {
   const l = left ? refUri(r, left, oldFile ?? file) : refUri(r, '', file);
-  const rt = right ? refUri(r, right, file) : vscode.Uri.file(path.join(r, file));
-  const title = `${path.basename(file)} (${left ? left.slice(0, 8) : 'empty'} ↔ ${right ? right.slice(0, 8) : 'working tree'})`;
+  const rt = right === '' ? refUri(r, '', file) : right ? refUri(r, right, file) : vscode.Uri.file(path.join(r, file));
+  const title = `${path.basename(file)} (${left ? left.slice(0, 8) : 'empty'} ↔ ${right === '' ? 'deleted' : right ? right.slice(0, 8) : 'working tree'})`;
   await vscode.commands.executeCommand('vscode.diff', l, rt, title);
 }
 /** Pick a file changed between two refs (right undefined = working tree) and open a side-by-side diff. */
@@ -102,6 +102,31 @@ function commitNode(r: string, c: P.Commit, file?: string): Node {
   return n;
 }
 
+// ---------- Commits ----------
+let commitLimit = 50;
+async function loadCommits(n?: Node): Promise<Node[]> {
+  const r = await root();
+  if (!n) {
+    const cs = P.parseLog(await git(r, 'log', '-n', String(commitLimit + 1), `--format=${P.LOG_FORMAT}`, 'HEAD').catch(() => ''));
+    const nodes = cs.slice(0, commitLimit).map(c => { const x = commitNode(r, c); x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed; x.command = undefined; x.id = `c:${c.sha}`; return x; });
+    if (cs.length > commitLimit) { const m = new Node('Load more…', 'loadMore'); m.iconPath = icon('ellipsis'); m.command = { command: 'gitKitchen.commits.loadMore', title: 'Load more' }; nodes.push(m); }
+    return nodes;
+  }
+  if (n.kind === 'commit') return commitFiles(r, n.data.sha);
+  return [];
+}
+async function commitFiles(r: string, sha: string): Promise<Node[]> {
+  const outp = await git(r, 'diff-tree', '--no-commit-id', '--root', '-r', '-M', '--name-status', sha);
+  const parent = await parentOf(r, sha);
+  return P.parseNameList(outp).map(l => {
+    const parts = l.split('\t'); const f = parts[parts.length - 1]; const old = parts.length > 2 ? parts[1] : undefined; const st = parts[0][0];
+    const x = new Node(path.basename(f), 'commitFile', { root: r, sha, file: f });
+    x.description = `${path.dirname(f) === '.' ? '' : path.dirname(f)} ${st}`.trim(); x.resourceUri = vscode.Uri.file(path.join(r, f)); x.iconPath = vscode.ThemeIcon.File;
+    x.command = { command: 'gitKitchen.diffFile', title: 'Open Changes', arguments: [r, st === 'A' || parent === EMPTY_TREE ? undefined : parent, st === 'D' ? '' : sha, f, old] };
+    return x;
+  });
+}
+
 // ---------- PR cache (for badges) ----------
 let prCache: { root: string; at: number; prs: P.PullRequest[] } | undefined;
 async function listPrs(r: string, force = false): Promise<P.PullRequest[]> {
@@ -112,21 +137,37 @@ async function listPrs(r: string, force = false): Promise<P.PullRequest[]> {
 
 // ---------- Branches ----------
 let selectedForCompare: string | undefined;
-async function loadBranches(n?: Node): Promise<Node[]> {
-  if (n) return [];
-  const r = await root();
-  const bs = P.parseBranches(await git(r, 'for-each-ref', `--format=${P.BRANCH_FORMAT}`, 'refs/heads'));
-  let prs: P.PullRequest[] = []; try { prs = await listPrs(r); } catch { /* gh missing or not GitHub */ }
-  return bs.map(b => {
-    const pr = prs.find(p => p.headRefName === b.name);
-    const hasWt = !!b.worktreePath && !b.current;
-    const x = new Node(b.name, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
-    const track = [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : '', b.gone ? 'upstream gone' : ''].filter(Boolean).join(' ');
-    x.description = [track, pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean).join('  ');
-    x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}`;
-    x.iconPath = b.current ? icon('check') : icon(hasWt ? 'repo' : 'git-branch');
-    return x;
+function treeLayout(): boolean { return vscode.workspace.getConfiguration('gitKitchen').get<string>('branches.layout', 'tree') === 'tree'; }
+/** Turn grouped entries into folder nodes (or a flat list) using `leaf` to build each item node. */
+function layoutNodes<T>(items: T[], nameOf: (t: T) => string, leaf: (t: T, label: string) => Node, folderKind: string): Node[] {
+  if (!treeLayout()) return items.map(i => leaf(i, nameOf(i)));
+  const build = (es: P.TreeEntry<T>[]): Node[] => es.map(e => {
+    if (e.kind === 'leaf') return leaf(e.item, e.name);
+    const f = new Node(e.name, folderKind, { children: build(e.children) }, vscode.TreeItemCollapsibleState.Expanded);
+    f.iconPath = icon('folder'); f.id = `${folderKind}:${e.path}`; return f;
   });
+  return build(P.groupByPrefix(items, nameOf));
+}
+async function loadBranches(n?: Node): Promise<Node[]> {
+  if (n) return n.data.children ?? [];
+  const r = await root();
+  const bs = P.parseBranches(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=${P.BRANCH_FORMAT}`, 'refs/heads'));
+  let prs: P.PullRequest[] = []; try { prs = await listPrs(r); } catch { /* gh missing or not GitHub */ }
+  const current = bs.filter(b => b.current);
+  const rest = layoutNodes(bs.filter(b => !b.current), b => b.name, (b, label) => branchNode(r, b, prs, label), 'branchFolder');
+  return [...current.map(b => branchNode(r, b, prs, b.name)), ...rest];
+}
+function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
+  const pr = prs.find(p => p.headRefName === b.name);
+  const hasWt = !!b.worktreePath && !b.current;
+  const x = new Node(label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
+  const track = [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : '', b.gone ? 'gone' : ''].filter(Boolean).join(' ');
+  const up = b.upstream ? `${track ? track + ' ' : ''}${b.upstream}` : 'no upstream';
+  x.description = [up, b.time ? P.relativeTime(b.time) : '', pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean).join(' · ');
+  x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}`;
+  x.iconPath = b.current ? icon('check') : icon(hasWt ? 'repo' : 'git-branch');
+  x.id = `branch:${b.name}`;
+  return x;
 }
 function bn(n: Node): string { return n?.data?.branch?.name ?? n?.data?.name; }
 async function pickBranch(r: string, title: string, includeRemote = false): Promise<string | undefined> {
@@ -179,9 +220,13 @@ function registerBranches() {
 // ---------- Remotes ----------
 async function loadRemotes(n?: Node): Promise<Node[]> {
   const r = await root();
-  if (!n) return P.parseRemotes(await git(r, 'remote', '-v')).map(rm => { const x = new Node(rm.name, 'remote', { root: r, name: rm.name }, vscode.TreeItemCollapsibleState.Collapsed); x.description = rm.fetchUrl; x.iconPath = icon('cloud'); return x; });
-  if (n.kind === 'remote') return P.parseNameList(await git(r, 'for-each-ref', '--format=%(refname:short)', `refs/remotes/${n.data.name}`)).filter(b => !b.endsWith('/HEAD'))
-    .map(b => { const x = new Node(b.slice(n.data.name.length + 1), 'remoteBranch', { root: r, name: b }); x.iconPath = icon('git-branch'); x.tooltip = b; return x; });
+  if (!n) return P.parseRemotes(await git(r, 'remote', '-v')).map(rm => { const x = new Node(rm.name, 'remote', { root: r, name: rm.name }, vscode.TreeItemCollapsibleState.Collapsed); x.description = rm.fetchUrl; x.iconPath = icon('cloud'); x.id = `remote:${rm.name}`; return x; });
+  if (n.kind === 'remote') {
+    const rows = P.parseNameList(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=%(refname:short)${P.SEP}%(committerdate:unix)`, `refs/remotes/${n.data.name}`))
+      .map(l => l.split(P.SEP)).filter(([b]) => !b.endsWith('/HEAD') && b !== n.data.name).map(([b, t]) => ({ full: b, short: b.slice(n.data.name.length + 1), time: +t }));
+    return layoutNodes(rows, x => x.short, (b, label) => { const x = new Node(label, 'remoteBranch', { root: r, name: b.full }); x.iconPath = icon('git-branch'); x.tooltip = b.full; x.description = b.time ? P.relativeTime(b.time) : ''; x.id = `rb:${b.full}`; return x; }, 'remoteFolder');
+  }
+  if (n.kind === 'remoteFolder') return n.data.children;
   return [];
 }
 function registerRemotes() {
@@ -249,21 +294,55 @@ async function blameFor(doc: vscode.TextDocument): Promise<{ r: string; lines: P
 }
 let blameTimer: NodeJS.Timeout | undefined;
 function scheduleBlame() { if (blameTimer) clearTimeout(blameTimer); blameTimer = setTimeout(updateBlame, 150); }
+const lineHighlightDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.currentLineBackground') });
+const HEAT_COLORS = ['255,99,0', '255,130,0', '255,160,0', '240,190,0', '200,200,40', '150,190,90', '100,170,150', '80,140,200', '70,110,210', '70,90,200'];
+function heatDecos(where: 'gutter' | 'background') {
+  return HEAT_COLORS.map((c, i) => vscode.window.createTextEditorDecorationType(where === 'gutter'
+    ? { isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: `rgba(${c},${(0.9 - i * 0.05).toFixed(2)})` }
+    : { isWholeLine: true, backgroundColor: `rgba(${c},${(0.22 - i * 0.018).toFixed(3)})` }));
+}
+let heatGutter = heatDecos('gutter'); let heatBg = heatDecos('background');
+const addedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
+const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '1px 0 0 0', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground') });
+type AnnotMode = 'none' | 'blame' | 'heatmap' | 'changes';
+let annot: AnnotMode = 'none'; let changesBase: string | undefined;
+async function setAnnot(m: AnnotMode) {
+  annot = annot === m ? 'none' : m; gutterOn = annot === 'blame';
+  for (const [k, v] of [['gutterBlame', annot === 'blame'], ['heatmap', annot === 'heatmap'], ['changes', annot === 'changes']] as const) await vscode.commands.executeCommand('setContext', `gitKitchen.${k}`, v);
+  await updateBlame();
+}
+function clearAll(ed: vscode.TextEditor) { for (const d of [eolDeco, gutterDeco, lineHighlightDeco, addedDeco, deletedDeco, ...heatGutter, ...heatBg]) ed.setDecorations(d, []); }
 async function updateBlame() {
   const ed = vscode.window.activeTextEditor; if (!ed) return;
   const cfg = vscode.workspace.getConfiguration('gitKitchen');
-  const b = await blameFor(ed.document); if (!b) { ed.setDecorations(eolDeco, []); ed.setDecorations(gutterDeco, []); return; }
-  if (cfg.get('blame.currentLine', true)) {
-    const line = ed.selection.active.line; const bl = b.lines[line];
-    const text = !bl ? '' : bl.uncommitted ? 'You · Uncommitted changes' : `${bl.author}, ${P.relativeTime(bl.authorTime)} • ${bl.summary}`;
-    ed.setDecorations(eolDeco, bl ? [{ range: new vscode.Range(line, Number.MAX_SAFE_INTEGER, line, Number.MAX_SAFE_INTEGER), renderOptions: { after: { contentText: text } } }] : []);
-  } else ed.setDecorations(eolDeco, []);
-  if (gutterOn) {
+  const b = await blameFor(ed.document); if (!b) { clearAll(ed); return; }
+  const line = ed.selection.active.line; const bl = b.lines[line];
+  if (cfg.get('blame.currentLine', true) && bl) {
+    const text = bl.uncommitted ? 'You · Uncommitted changes' : `${bl.author}, ${P.relativeTime(bl.authorTime)} • ${bl.summary}`;
+    ed.setDecorations(eolDeco, [{ range: new vscode.Range(line, Number.MAX_SAFE_INTEGER, line, Number.MAX_SAFE_INTEGER), renderOptions: { after: { contentText: text } } }]);
+    ed.setDecorations(lineHighlightDeco, cfg.get('blame.highlightLine', true) ? [new vscode.Range(line, 0, line, 0)] : []);
+  } else { ed.setDecorations(eolDeco, []); ed.setDecorations(lineHighlightDeco, []); }
+  if (annot === 'blame') {
     let prev = '';
     ed.setDecorations(gutterDeco, b.lines.map(bl => { const same = bl.sha === prev; prev = bl.sha;
       const t = same ? ' ' : bl.uncommitted ? 'Uncommitted' : `${bl.sha.slice(0, 7)} ${bl.author.split(' ')[0]} ${P.relativeTime(bl.authorTime).replace(' ago', '')}`;
       return { range: new vscode.Range(bl.line - 1, 0, bl.line - 1, 0), renderOptions: { before: { contentText: t.padEnd(22, '\u00a0').slice(0, 22) } } }; }));
   } else ed.setDecorations(gutterDeco, []);
+  const heatSet = cfg.get<string>('heatmap.location', 'gutter') === 'background' ? heatBg : heatGutter;
+  for (const d of [...heatGutter, ...heatBg]) if (annot !== 'heatmap' || !heatSet.includes(d)) ed.setDecorations(d, []);
+  if (annot === 'heatmap') {
+    const now = Date.now() / 1000; const times = b.lines.map(l => l.uncommitted ? now : l.authorTime);
+    const newest = Math.max(...times), oldest = Math.min(...times);
+    const buckets: vscode.Range[][] = heatSet.map(() => []);
+    b.lines.forEach((l, i) => buckets[P.heatBucket(times[i], newest, oldest, heatSet.length)].push(new vscode.Range(l.line - 1, 0, l.line - 1, 0)));
+    heatSet.forEach((d, i) => ed.setDecorations(d, buckets[i]));
+  }
+  if (annot === 'changes') {
+    const args = ['diff', '-U0', '--no-color', ...(changesBase ? [changesBase] : ['HEAD']), '--', rel(b.r, ed.document.fileName)];
+    const { added, deletedAfter } = P.changedLines(await git(b.r, ...args).catch(() => ''));
+    ed.setDecorations(addedDeco, added.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
+    ed.setDecorations(deletedDeco, deletedAfter.map(n => new vscode.Range(Math.max(0, n), 0, Math.max(0, n), 0)));
+  } else { ed.setDecorations(addedDeco, []); ed.setDecorations(deletedDeco, []); }
 }
 const hoverProvider: vscode.HoverProvider = {
   async provideHover(doc, pos) {
@@ -281,7 +360,7 @@ const hoverProvider: vscode.HoverProvider = {
   }
 };
 function registerBlame() {
-  cmd('gitKitchen.blame.toggleFile', async () => { gutterOn = !gutterOn; await vscode.commands.executeCommand('setContext', 'gitKitchen.gutterBlame', gutterOn); updateBlame(); });
+  cmd('gitKitchen.blame.toggleFile', async () => setAnnot('blame'));
   cmd('gitKitchen.blame.toggleLine', async () => { const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('blame.currentLine', !c.get('blame.currentLine', true), vscode.ConfigurationTarget.Global); updateBlame(); });
   cmd('gitKitchen.copyCommitLink', async (arg?: any) => {
     let r: string, sha: string, file: string, start: number, end: number | undefined;
@@ -300,7 +379,7 @@ function registerBlame() {
   cmd('gitKitchen.compareCommitWorking', compareCommitWorking);
   cmd('gitKitchen.blame.openLineCommit', async () => { const ed = vscode.window.activeTextEditor; if (!ed) return; const b = await blameFor(ed.document); const bl = b?.lines[ed.selection.active.line];
     if (!b || !bl || bl.uncommitted) { vscode.window.showInformationMessage('This line is not committed yet.'); return; } await openCommitDiff({ root: b.r, sha: bl.sha, file: bl.filename }); });
-  ctx.subscriptions.push(eolDeco, gutterDeco,
+  ctx.subscriptions.push(eolDeco, gutterDeco, lineHighlightDeco, addedDeco, deletedDeco, ...heatGutter, ...heatBg,
     vscode.languages.registerHoverProvider({ scheme: 'file' }, hoverProvider),
     vscode.window.onDidChangeTextEditorSelection(scheduleBlame), vscode.window.onDidChangeActiveTextEditor(scheduleBlame),
     vscode.workspace.onDidSaveTextDocument(d => { blameCache.delete(d.uri.fsPath); scheduleBlame(); }),
@@ -492,6 +571,83 @@ async function maybeOpenDefaultWorkspace() {
   if (f && fs.existsSync(f)) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(f), { forceNewWindow: false });
 }
 
+// ---------- Annotations menu ----------
+function registerAnnotations() {
+  cmd('gitKitchen.annotations.heatmap', async () => setAnnot('heatmap'));
+  cmd('gitKitchen.annotations.changes', async () => {
+    if (annot === 'changes') { await setAnnot('changes'); return; }
+    const ed = vscode.window.activeTextEditor; if (!ed) return; const r = await root();
+    const hist = P.parseLog(await git(r, 'log', '-n', '200', `--format=${P.LOG_FORMAT}`, '--', rel(r, ed.document.fileName)));
+    const pick = await vscode.window.showQuickPick([{ label: 'Working tree changes', description: 'since HEAD', sha: undefined as string | undefined },
+      ...hist.map(c => ({ label: c.subject, description: `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`, sha: c.sha }))], { title: 'Show lines changed since…' });
+    if (!pick) return; changesBase = pick.sha; await setAnnot('changes');
+  });
+  cmd('gitKitchen.annotations.settings', async () => vscode.commands.executeCommand('workbench.action.openSettings', 'gitKitchen'));
+}
+
+// ---------- Revision navigation ----------
+function navTarget(): { r?: string; file: string; abs: string; sha?: string } | undefined {
+  const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+  const uri = tab?.input instanceof vscode.TabInputTextDiff ? tab.input.modified : tab?.input instanceof vscode.TabInputText ? tab.input.uri : vscode.window.activeTextEditor?.document.uri;
+  if (!uri) return;
+  if (uri.scheme === SCHEME) { const q = JSON.parse(uri.query); return { r: q.r, file: q.file, abs: path.join(q.r, q.file), sha: q.ref || undefined }; }
+  if (uri.scheme === 'file') return { file: '', abs: uri.fsPath };
+}
+async function fileHistoryShas(r: string, file: string) { return P.parseNameList(await git(r, 'log', '--follow', '--format=%H', '--', file)); }
+async function showRevision(r: string, file: string, hist: string[], right: string | 'working') {
+  if (right === 'working') { if (hist[0]) await diffFile(r, hist[0], undefined, file); return; }
+  const i = hist.indexOf(right); const left = hist[i + 1];
+  await diffFile(r, left, right, file);
+}
+function registerNav() {
+  const step = (dir: 'prev' | 'next') => async () => {
+    const t = navTarget(); if (!t) return; const r = t.r ?? await repoRoot(path.dirname(t.abs)); if (!r) return; const file = t.file || rel(r, t.abs);
+    const hist = await fileHistoryShas(r, file);
+    const next = P.stepRevision(hist, t.sha, dir);
+    if (!next) { vscode.window.setStatusBarMessage(dir === 'prev' ? 'No earlier revision' : 'Already at the working copy', 3000); return; }
+    if (next === 'working' && dir === 'next') { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(r, file))); return; }
+    await showRevision(r, file, hist, next);
+  };
+  cmd('gitKitchen.rev.prev', step('prev'));
+  cmd('gitKitchen.rev.next', step('next'));
+  cmd('gitKitchen.rev.choose', async () => {
+    const t = navTarget(); if (!t) return; const r = t.r ?? await repoRoot(path.dirname(t.abs)); if (!r) return; const file = t.file || rel(r, t.abs);
+    const cs = P.parseLog(await git(r, 'log', '--follow', `--format=${P.LOG_FORMAT}`, '--', file));
+    const pick = await vscode.window.showQuickPick(cs.map(c => ({ label: c.subject, description: `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`, sha: c.sha, picked: c.sha === t.sha })), { title: `Revisions of ${path.basename(file)}`, matchOnDescription: true });
+    if (pick) await showRevision(r, file, cs.map(c => c.sha), pick.sha);
+  });
+}
+
+// ---------- Code lens ----------
+const lensEmitter = new vscode.EventEmitter<void>();
+const lensProvider: vscode.CodeLensProvider = {
+  onDidChangeCodeLenses: lensEmitter.event,
+  async provideCodeLenses(doc) {
+    const cfg = vscode.workspace.getConfiguration('gitKitchen'); if (!cfg.get('codeLens.enabled', true)) return [];
+    const b = await blameFor(doc); if (!b || !b.lines.length) return [];
+    const ranges: vscode.Range[] = [new vscode.Range(0, 0, doc.lineCount - 1, 0)];
+    if (cfg.get('codeLens.symbols', true)) {
+      const syms = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>('vscode.executeDocumentSymbolProvider', doc.uri).then(x => x ?? [], () => []);
+      const want = new Set([vscode.SymbolKind.Function, vscode.SymbolKind.Class, vscode.SymbolKind.Method, vscode.SymbolKind.Interface, vscode.SymbolKind.Constructor]);
+      const walk = (ss: any[], depth: number) => { for (const s of ss) { const range: vscode.Range = s.range ?? s.location?.range; if (want.has(s.kind) && range) ranges.push(range); if (s.children && depth < 2) walk(s.children, depth + 1); } };
+      walk(syms, 0);
+    }
+    const lenses: vscode.CodeLens[] = [];
+    for (const rg of ranges) {
+      const sum = P.lensSummary(b.lines, rg.start.line + 1, rg.end.line + 1); if (!sum) continue;
+      const at = new vscode.Range(rg.start.line, 0, rg.start.line, 0); const file = sum.latest.filename || rel(b.r, doc.fileName);
+      lenses.push(new vscode.CodeLens(at, { title: sum.label, tooltip: sum.latest.summary, command: 'gitKitchen.openCommitDiff', arguments: [{ root: b.r, sha: sum.latest.sha, file }] }));
+      lenses.push(new vscode.CodeLens(at, { title: sum.authorsLabel, tooltip: sum.authors.join(', '), command: 'gitKitchen.lens.blame', arguments: [] }));
+    }
+    return lenses;
+  }
+};
+function registerLens() {
+  cmd('gitKitchen.lens.blame', async () => { if (annot !== 'blame') await setAnnot('blame'); });
+  ctx.subscriptions.push(vscode.languages.registerCodeLensProvider({ scheme: 'file' }, lensProvider), lensEmitter,
+    vscode.workspace.onDidSaveTextDocument(() => lensEmitter.fire()));
+}
+
 // ---------- activate ----------
 export async function activate(c: vscode.ExtensionContext) {
   ctx = c;
@@ -499,6 +655,7 @@ export async function activate(c: vscode.ExtensionContext) {
   const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true }); c.subscriptions.push(v); return v; };
   view('gitKitchen.branches', new Tree(loadBranches));
   view('gitKitchen.remotes', new Tree(loadRemotes));
+  view('gitKitchen.commits', new Tree(loadCommits));
   view('gitKitchen.stashes', new Tree(loadStashes, resolveStash));
   view('gitKitchen.worktrees', new Tree(loadWorktrees));
   view('gitKitchen.prs', new Tree(loadPrs));
@@ -507,6 +664,11 @@ export async function activate(c: vscode.ExtensionContext) {
   view('gitKitchen.todos', new Tree(loadTodos));
   historyTree = new Tree(loadHistory); historyView = view('gitKitchen.history', historyTree);
   registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerPrs(); registerDual(); registerMerged(); registerExplorer();
+  cmd('gitKitchen.commits.loadMore', async () => { commitLimit += 50; refreshAll(); });
+  cmd('gitKitchen.diffFile', async (r: string, l: string | undefined, rt: string | undefined, f: string, old?: string) => {
+    await diffFile(r, l, rt, f, old); });
+  registerNav(); registerAnnotations(); registerLens();
+  c.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen')) { refreshAll(); scheduleBlame(); lensEmitter.fire(); } }));
   cmd('gitKitchen.refresh', async () => { prCache = undefined; refreshAll(); });
   // Refresh trees when the repo's HEAD or refs change.
   const w = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,refs/**,logs/refs/stash,worktrees/**}');
@@ -520,4 +682,4 @@ export async function activate(c: vscode.ExtensionContext) {
 export function deactivate() {}
 
 // Exposed for the smoke test.
-export const _test = { compareRefs, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+export const _test = { compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
