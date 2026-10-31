@@ -65,6 +65,41 @@ export async function run() {
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, new vscode.Position(2, 0));
     const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n'); assert.match(text, /Second commit/); assert.match(text, /Open Changes/);
   });
+  await check('hover includes the line diff hunk from its commit', async () => {
+    const doc = vscode.window.activeTextEditor!.document;
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, new vscode.Position(2, 0));
+    const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n');
+    assert.match(text, /```diff/); assert.match(text, /\+const b = 2; \/\/ FIXME later/);
+  });
+  await check('status bar shows author and time, click opens commit', async () => {
+    const ed = vscode.window.activeTextEditor!; ed.selection = new vscode.Selection(2, 0, 2, 0); await t.updateBlame();
+    const s = t.status(); assert.match(s.text, /^\$\(git-commit\) Smoke, /); assert.strictEqual(s.command?.command, 'gitKitchen.openCommitDiff');
+  });
+  await check('same-commit lines highlighted for cursor and hover', async () => {
+    const ed = vscode.window.activeTextEditor!; ed.selection = new vscode.Selection(0, 0, 0, 0); await t.updateBlame();
+    assert.deepStrictEqual(t.same(), [2]);
+    await vscode.commands.executeCommand('vscode.executeHoverProvider', ed.document.uri, new vscode.Position(2, 0));
+    assert.deepStrictEqual(t.same(), []);
+    await vscode.commands.executeCommand('vscode.executeHoverProvider', ed.document.uri, new vscode.Position(1, 0));
+    assert.deepStrictEqual(t.same(), [1]);
+  });
+  await check('gutter change markers vs HEAD by default (unsaved edits)', async () => {
+    const ed = vscode.window.activeTextEditor!;
+    await ed.edit(e => { e.replace(new vscode.Range(0, 0, 0, 12), 'const a = 10;'); e.insert(new vscode.Position(3, 0), 'const d = 4;\n'); e.delete(new vscode.Range(1, 0, 2, 0)); });
+    await t.updateBlame();
+    assert.deepStrictEqual(t.changes(), { added: [3], modified: [1], deletedAfter: [1] });
+    await vscode.commands.executeCommand('workbench.action.files.revert'); await t.updateBlame();
+    assert.deepStrictEqual(t.changes(), { added: [], modified: [], deletedAfter: [] });
+  });
+  await check('settings turn status bar, same-commit and change markers off', async () => {
+    const c = vscode.workspace.getConfiguration('gitKitchen');
+    for (const k of ['statusBar.enabled', 'blame.highlightSameCommit', 'changes.gutter', 'blame.changesHover']) await c.update(k, false, vscode.ConfigurationTarget.Global);
+    const ed = vscode.window.activeTextEditor!; ed.selection = new vscode.Selection(0, 0, 0, 0); await t.updateBlame();
+    assert.deepStrictEqual(t.same(), []); assert.strictEqual(t.changes(), undefined);
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', ed.document.uri, new vscode.Position(2, 0));
+    assert.doesNotMatch(hovers.flatMap(h => h.contents.map((x: any) => x.value ?? String(x))).join('\n'), /```diff/);
+    for (const k of ['statusBar.enabled', 'blame.highlightSameCommit', 'changes.gutter', 'blame.changesHover']) await c.update(k, undefined, vscode.ConfigurationTarget.Global);
+  });
   await check('toggle gutter blame runs', async () => { await vscode.commands.executeCommand('gitKitchen.blame.toggleFile'); await vscode.commands.executeCommand('gitKitchen.blame.toggleFile'); });
   await check('current-line highlight + annotations toggle', async () => {
     await vscode.commands.executeCommand('gitKitchen.annotations.heatmap'); assert.strictEqual(t.getAnnot(), 'heatmap');

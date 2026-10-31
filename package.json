@@ -2,7 +2,7 @@
   "name": "gitkitchen",
   "displayName": "Git Kitchen",
   "description": "Branches, remotes, stashes, worktrees, pull requests, blame and history for the editor.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "heroeskitchen",
   "license": "MIT",
   "repository": {
@@ -1203,6 +1203,16 @@
           "highContrast": null,
           "highContrastLight": null
         }
+      },
+      {
+        "id": "gitKitchen.sameCommitBackground",
+        "description": "Background of other lines from the same commit as the current line.",
+        "defaults": {
+          "dark": "#4fa3ff1a",
+          "light": "#0066cc14",
+          "highContrast": null,
+          "highContrastLight": null
+        }
       }
     ],
     "views": {
@@ -1271,6 +1281,26 @@
           "type": "boolean",
           "default": true,
           "description": "Highlight the whole current line while line blame is shown."
+        },
+        "gitKitchen.blame.highlightSameCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight other lines from the same commit as the current or hovered line."
+        },
+        "gitKitchen.blame.changesHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the line's diff hunk from its commit in the blame hover."
+        },
+        "gitKitchen.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the current line's author and time in the status bar. Click to open the commit changes."
+        },
+        "gitKitchen.changes.gutter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark added, changed and deleted lines against HEAD in the gutter."
         },
         "gitKitchen.branches.layout": {
           "type": "string",

@@ -165,3 +165,39 @@ describe('lensSummary', () => {
     expect(p.lensSummary(L, 1, 5, now)!.authorsLabel).toBe('5 authors (A, B, C, +2)');
   });
 });
+
+describe('0.2.1 helpers', () => {
+  const bl = (line: number, sha: string, extra: Partial<p.BlameLine> = {}): p.BlameLine => ({ line, sha, author: 'A', authorTime: 1000, summary: 's', filename: 'f', uncommitted: /^0+$/.test(sha), ...extra });
+  it('classifyChanges splits added, modified and deleted', () => {
+    const d = '@@ -1,0 +2,2 @@\n+a\n+b\n@@ -5,2 +7,3 @@\n-x\n-y\n+x\n+y\n+z\n@@ -9,2 +11,0 @@\n-q\n-r\n@@ -12 +13 @@\n-o\n+n';
+    expect(p.classifyChanges(d)).toEqual({ added: [2, 3, 9], modified: [7, 8, 13], deletedAfter: [11] });
+  });
+  it('classifyChanges marks lines removed inside a modified hunk', () => {
+    expect(p.classifyChanges('@@ -1,3 +1 @@\n-a\n-b\n-c\n+A')).toEqual({ added: [], modified: [1], deletedAfter: [1] });
+  });
+  it('classifyChanges on empty diff', () => { expect(p.classifyChanges('')).toEqual({ added: [], modified: [], deletedAfter: [] }); });
+  it('sameCommitLines finds other lines of the commit', () => {
+    const lines = [bl(1, 'a'.repeat(40)), bl(2, 'b'.repeat(40)), bl(3, 'a'.repeat(40)), bl(4, '0'.repeat(40)), bl(5, '0'.repeat(40))];
+    expect(p.sameCommitLines(lines, 1)).toEqual([3]);
+    expect(p.sameCommitLines(lines, 2)).toEqual([]);
+    expect(p.sameCommitLines(lines, 4)).toEqual([]);
+    expect(p.sameCommitLines(lines, 99)).toEqual([]);
+  });
+  it('hunkForLine picks the hunk covering the line', () => {
+    const d = 'diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n+b\n c\n@@ -10,2 +11,2 @@\n-x\n+y\n z\n';
+    expect(p.hunkForLine(d, 2)).toBe('@@ -1,2 +1,3 @@\n a\n+b\n c');
+    expect(p.hunkForLine(d, 12)).toBe('@@ -10,2 +11,2 @@\n-x\n+y\n z');
+    expect(p.hunkForLine(d, 7)).toBeUndefined();
+    expect(p.hunkForLine('', 1)).toBeUndefined();
+  });
+  it('statusBarText', () => {
+    const now = 1000 * 1000 + 3 * 3600 * 1000;
+    expect(p.statusBarText(bl(1, 'a'.repeat(40), { author: 'Ann' }), now)).toBe(`$(git-commit) Ann, ${p.relativeTime(1000, now)}`);
+    expect(p.statusBarText(bl(1, '0'.repeat(40)))).toBe('$(git-commit) You, uncommitted');
+    expect(p.statusBarText(undefined)).toBeUndefined();
+  });
+  it('blame porcelain keeps the original line', () => {
+    const out = `${'a'.repeat(40)} 7 1 1\nauthor A\nauthor-time 5\nsummary s\nfilename f\n\tx\n`;
+    expect(p.parseBlamePorcelain(out)[0].origLine).toBe(7);
+  });
+});
