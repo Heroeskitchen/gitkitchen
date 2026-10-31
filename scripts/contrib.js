@@ -60,7 +60,11 @@ c('gitKitchen.openCommitDiff', 'Open Changes with Previous', null, {}); item('gi
 c('gitKitchen.compareCommitWorking', 'Compare with Working Copy', null, {}); c('gitKitchen.history.compareWorking', 'Compare with Working Copy', null, { hidePalette: true }); item('gitKitchen.history.compareWorking', CM, '1@2');
 c('gitKitchen.commit.openAllFiles', 'Open All Changed Files', null, { hidePalette: true }); item('gitKitchen.commit.openAllFiles', CM, '1@3');
 c('gitKitchen.commit.copyLink', 'Copy Link', null, { hidePalette: true }); item('gitKitchen.commit.copyLink', CM, '2@1');
-c('gitKitchen.commit.copySha', 'Copy SHA', null, { hidePalette: true }); item('gitKitchen.commit.copySha', CM, '2@2');
+c('gitKitchen.commit.copySha', 'Copy SHA', null, { hidePalette: true });
+c('gitKitchen.commit.search', 'Search Commits…', 'search');
+c('gitKitchen.commit.copyMessage', 'Copy Commit Message', 'copy', { hidePalette: true }); c('gitKitchen.commit.reveal', 'Show in Commits View', 'list-tree', { hidePalette: true });
+c('gitKitchen.commit.openOnRemote', 'Open Commit on Remote', 'globe', { hidePalette: true }); c('gitKitchen.blame.comparePrevious', 'Compare Working File with Previous Revision', 'diff', { hidePalette: true }); c('gitKitchen.blame.openRevision', 'Open File at Revision', 'file-code', { hidePalette: true }); c('gitKitchen.blame.previous', 'Blame Previous Revision', 'history', { hidePalette: true });
+c('gitKitchen.copyText', 'Copy', 'copy', { hidePalette: true }); c('gitKitchen.stash.applyRef', 'Apply Stash', 'check', { hidePalette: true }); item('gitKitchen.commit.copySha', CM, '2@2');
 c('gitKitchen.commit.openOnGitHub', 'Open on GitHub', null, { hidePalette: true }); item('gitKitchen.commit.openOnGitHub', CM, '2@3');
 // Blame / editor
 c('gitKitchen.blame.toggleFile', 'Toggle File Blame');

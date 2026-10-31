@@ -2,8 +2,8 @@
 
 export const SEP = '\x1f';
 
-export interface Branch { name: string; current: boolean; upstream?: string; ahead: number; behind: number; gone: boolean; sha: string; subject: string; worktreePath?: string; time: number }
-export const BRANCH_FORMAT = ['%(HEAD)', '%(refname:short)', '%(upstream:short)', '%(upstream:track)', '%(objectname:short)', '%(contents:subject)', '%(worktreepath)', '%(committerdate:unix)'].join(SEP);
+export interface Branch { name: string; current: boolean; upstream?: string; ahead: number; behind: number; gone: boolean; sha: string; subject: string; worktreePath?: string; time: number; author?: string; email?: string }
+export const BRANCH_FORMAT = ['%(HEAD)', '%(refname:short)', '%(upstream:short)', '%(upstream:track)', '%(objectname:short)', '%(contents:subject)', '%(worktreepath)', '%(committerdate:unix)', '%(authorname)', '%(authoremail:trim)'].join(SEP);
 
 export function parseTrack(track: string): { ahead: number; behind: number; gone: boolean } {
   const a = /ahead (\d+)/.exec(track); const b = /behind (\d+)/.exec(track);
@@ -12,8 +12,8 @@ export function parseTrack(track: string): { ahead: number; behind: number; gone
 
 export function parseBranches(out: string): Branch[] {
   return out.split('\n').filter(l => l.trim()).map(l => {
-    const [head, name, upstream, track, sha, subject, wt, time] = l.split(SEP);
-    return { name, current: head === '*', upstream: upstream || undefined, ...parseTrack(track || ''), sha, subject: subject ?? '', worktreePath: wt || undefined, time: +(time || 0) };
+    const [head, name, upstream, track, sha, subject, wt, time, author, email] = l.split(SEP);
+    return { name, current: head === '*', upstream: upstream || undefined, ...parseTrack(track || ''), sha, subject: subject ?? '', worktreePath: wt || undefined, time: +(time || 0), ...(author ? { author, email: (email ?? '').replace(/^<|>$/g, '') } : {}) };
   });
 }
 
@@ -486,4 +486,99 @@ export function avatarQuery(owner: string, repo: string, shas: string[]): string
 export function parseAvatarQuery(json: string, count: number): (string | undefined)[] {
   let repo: any; try { repo = JSON.parse(json)?.data?.repository; } catch { /* bad output */ }
   return Array.from({ length: count }, (_, i) => repo?.[`c${i}`]?.author?.avatarUrl || undefined);
+}
+
+// ---- Hover cards -------------------------------------------------------------------------------
+export interface CardAction { icon: string; label?: string; tip: string; command?: string; args?: unknown; url?: string }
+export function cmdUri(command: string, args?: unknown): string {
+  return `command:${command}${args === undefined ? '' : `?${encodeURIComponent(JSON.stringify([args]))}`}`;
+}
+function actionLink(a: CardAction): string {
+  const target = a.url ?? cmdUri(a.command!, a.args);
+  return `[$(${a.icon})${a.label ? ' ' + a.label : ''}](${target} "${a.tip.replace(/"/g, "'")}")`;
+}
+export function actionBar(actions: CardAction[]): string { return actions.map(actionLink).join('&nbsp;&nbsp;'); }
+/** Shared tooltip card: icon or avatar + bold title, a status line, detail lines, then an action bar. */
+export function mdCard(c: { title: string; icon?: string; avatar?: string; status?: string; details?: string[]; body?: string; actions?: CardAction[] }): string {
+  const lead = c.avatar ? `<img src="${c.avatar}" width="16" height="16"/> ` : c.icon ? `$(${c.icon}) ` : '';
+  const out = [`${lead}**${escapeMd(c.title)}**`];
+  if (c.status) out.push(c.status);
+  if (c.details?.length) out.push(c.details.join('  \n'));
+  if (c.body) out.push(c.body);
+  if (c.actions?.length) out.push('---', actionBar(c.actions));
+  return out.join('\n\n');
+}
+/** A commit message as markdown: HTML neutralized, #123 linked, Co-authored-by lines as mailto links. */
+export function messageMarkdown(message: string, web?: string): string {
+  const safe = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const co = safe.replace(/^(Co-authored-by:\s*)(.+?)\s*&lt;([^&\s]+@[^&\s]+)&gt;\s*$/gim, (_m, k, name, mail) => `${k}[${name}](mailto:${mail})`);
+  return linkPrRefs(co, web).split('\n').map(l => l.replace(/\s+$/, '')).join('  \n').replace(/ {2}\n {2}\n/g, '\n\n');
+}
+export function prNumberFromMessage(message: string): number | undefined {
+  const m = /\(#(\d+)\)|Merge pull request #(\d+)/.exec(message); return m ? +(m[1] ?? m[2]) : undefined;
+}
+/** Editor blame hover in the GitLens layout. */
+export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?: string; nowMs?: number; dateText?: string; root: string; file?: string; line?: number; hunk?: string }): string {
+  const sha = d.sha.slice(0, 7); const at = { root: o.root, sha: d.sha };
+  const who = `${o.avatar ? `<img src="${o.avatar}" width="16" height="16"/> ` : '$(account) '}**${escapeMd(d.author)}**${o.web ? ' $(github)' : ''}`;
+  const when = `$(history) ${relativeTime(d.time, o.nowMs)} (${o.dateText ?? new Date(d.time * 1000).toLocaleString()})`;
+  const copy = `<span style="float:right;">${actionLink({ icon: 'copy', tip: 'Copy SHA', command: 'gitKitchen.commit.copySha', args: { sha: d.sha } })}</span>`;
+  const parts = [`${who}&nbsp;&nbsp;${when}${copy}`, messageMarkdown(d.message, o.web)];
+  const pr = prNumberFromMessage(d.message);
+  if (pr && o.web) parts.push(`$(git-pull-request) [GitHub Issue or Pull Request #${pr}](${o.web}/pull/${pr})`);
+  const fa = { ...at, file: o.file, line: o.line };
+  const actions: CardAction[] = [
+    { icon: 'git-commit', label: sha, tip: 'Copy SHA', command: 'gitKitchen.commit.copySha', args: { sha: d.sha } },
+    { icon: 'copy', tip: 'Copy Message', command: 'gitKitchen.commit.copyMessage', args: at },
+    ...(o.web ? [{ icon: 'globe', tip: 'Open Commit on Remote', command: 'gitKitchen.commit.openOnRemote', args: at }] : []),
+    { icon: 'search', tip: 'Search Commits by This SHA', command: 'gitKitchen.commit.search', args: { ...at, direct: true } },
+    { icon: 'list-tree', tip: 'Show in Commits View', command: 'gitKitchen.commit.reveal', args: at },
+    ...(o.file ? [
+      { icon: 'git-compare', tip: 'Open Changes for This File', command: 'gitKitchen.openCommitDiff', args: { ...at, file: o.file } },
+      { icon: 'files', tip: 'Open All Changes in Commit', command: 'gitKitchen.openCommitDiff', args: at },
+      { icon: 'diff', tip: 'Compare Working File with Previous Revision', command: 'gitKitchen.blame.comparePrevious', args: fa },
+      { icon: 'file-code', tip: 'Open File at This Revision', command: 'gitKitchen.blame.openRevision', args: fa },
+      { icon: 'history', tip: 'Blame Previous Revision', command: 'gitKitchen.blame.previous', args: fa },
+    ] : [{ icon: 'git-compare', tip: 'Open Changes', command: 'gitKitchen.openCommitDiff', args: at }]),
+  ];
+  parts.push('---', actionBar(actions), '---');
+  if (o.hunk) parts.push('```diff\n' + o.hunk + '\n```', `Changes added in ${actionLink({ icon: 'git-commit', label: sha, tip: 'Open Changes', command: 'gitKitchen.openCommitDiff', args: { ...at, file: o.file } })}`);
+  return parts.join('\n\n');
+}
+export function branchCardMarkdown(b: Branch, o: { state?: string; syncText?: string; freshness?: string; when?: string; avatar?: string; author?: string; pr?: { number: number; state: string; url?: string }; root: string }): string {
+  const details = [
+    b.upstream ? `$(cloud) ${b.gone ? `~~${escapeMd(b.upstream)}~~ (gone)` : escapeMd(b.upstream)}${!b.gone ? ` · $(arrow-down) ${b.behind} $(arrow-up) ${b.ahead}` : ''}` : '$(cloud) no upstream',
+    `${o.avatar ? `<img src="${o.avatar}" width="14" height="14"/>` : '$(git-commit)'} \`${b.sha}\` ${escapeMd(b.subject)}${o.author ? ` — ${escapeMd(o.author)}` : ''}${o.when ? `, ${o.when}` : ''}`,
+    ...(o.pr ? [`$(git-pull-request) ${o.pr.url ? `[PR #${o.pr.number}](${o.pr.url})` : `PR #${o.pr.number}`} ${o.pr.state.toLowerCase()}`] : []),
+    ...(b.worktreePath && !b.current ? [`$(worktree) ${escapeMd(b.worktreePath)}`] : []),
+    ...(o.freshness ? [`$(pulse) ${o.freshness}`] : []),
+  ];
+  return mdCard({ title: b.name, icon: 'git-branch', status: [o.state, o.syncText].filter(Boolean).join(' · ') || undefined, details,
+    actions: [{ icon: 'git-compare', tip: 'Compare with HEAD', command: 'gitKitchen.branch.compareHead', args: { data: { branch: b } } }, { icon: 'copy', tip: 'Copy Name', command: 'gitKitchen.copyText', args: b.name }] });
+}
+export function stashCardMarkdown(s: Stash, o: { branch?: string; dateText: string; when: string; files: number; insertions: number; deletions: number }): string {
+  return mdCard({ title: s.message, icon: 'archive', status: `${s.ref}${o.branch ? ` · on \`${escapeMd(o.branch)}\`` : ''}`,
+    details: [`$(history) ${o.when} (${o.dateText})`, `$(files) ${o.files} file${o.files === 1 ? '' : 's'} · <span style="color:#3fb950;">+${o.insertions}</span> <span style="color:#f85149;">-${o.deletions}</span>`],
+    actions: [{ icon: 'check', label: 'Apply', tip: 'Apply Stash', command: 'gitKitchen.stash.applyRef', args: s.ref }, { icon: 'copy', tip: 'Copy Message', command: 'gitKitchen.copyText', args: s.message }] });
+}
+export function worktreeCardMarkdown(w: Worktree, o: { dirty: boolean; subject?: string }): string {
+  return mdCard({ title: w.branch ?? (w.detached ? 'detached HEAD' : w.path), icon: 'worktree', status: `${o.dirty ? '$(circle-filled) uncommitted changes' : '$(check) clean'}${w.locked ? ' · $(lock) locked' : ''}${w.main ? ' · main worktree' : ''}`,
+    details: [`$(folder) ${escapeMd(w.path)}`, ...(w.head ? [`$(git-commit) \`${w.head.slice(0, 7)}\` ${escapeMd(o.subject ?? '')}`] : [])],
+    actions: [{ icon: 'copy', tip: 'Copy Path', command: 'gitKitchen.copyText', args: w.path }] });
+}
+export function remoteCardMarkdown(o: { name: string; fetchUrl: string; pushUrl: string; branches: number; web?: string }): string {
+  return mdCard({ title: o.name, icon: 'cloud', status: `${o.branches} branch${o.branches === 1 ? '' : 'es'}`,
+    details: [`$(arrow-down) fetch ${escapeMd(o.fetchUrl)}`, `$(arrow-up) push ${escapeMd(o.pushUrl)}`],
+    actions: [...(o.web ? [{ icon: 'globe', tip: 'Open on Remote', url: o.web }] : []), { icon: 'copy', tip: 'Copy URL', command: 'gitKitchen.copyText', args: o.fetchUrl }] });
+}
+export function prCardMarkdown(p: PullRequest, o: { avatar?: string } = {}): string {
+  const checks = { pass: '$(pass) checks passing', fail: '$(error) checks failing', pending: '$(clock) checks pending', none: '$(circle-slash) no checks' }[p.checks];
+  return mdCard({ title: `#${p.number} ${p.title}`, avatar: o.avatar, icon: p.isDraft ? 'git-pull-request-draft' : 'git-pull-request',
+    status: `${p.isDraft ? 'Draft' : 'Open'} · by ${escapeMd(p.author)}${p.reviewDecision ? ` · ${p.reviewDecision.toLowerCase().replace(/_/g, ' ')}` : ''}`,
+    details: [checks, `$(git-merge) \`${escapeMd(p.baseRefName)}\` ← \`${escapeMd(p.headRefName)}\``, ...(p.mergeable && p.mergeable !== 'UNKNOWN' ? [`mergeable: ${p.mergeable.toLowerCase()}`] : [])],
+    actions: [{ icon: 'globe', label: 'Open on GitHub', tip: p.url, url: p.url }] });
+}
+export function syncGroupCardMarkdown(kind: 'Incoming' | 'Outgoing', count: number, branch: string, upstream: string): string {
+  const verb = kind === 'Incoming' ? `to pull from \`${escapeMd(upstream)}\` into \`${escapeMd(branch)}\`` : `to push from \`${escapeMd(branch)}\` to \`${escapeMd(upstream)}\``;
+  return mdCard({ title: kind, icon: kind === 'Incoming' ? 'cloud-download' : 'cloud-upload', status: `${count} commit${count === 1 ? '' : 's'} ${verb}` });
 }

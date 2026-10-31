@@ -407,3 +407,32 @@ describe('avatars', () => {
     expect(p.parseAvatarQuery('nope', 1)).toEqual([undefined]);
   });
 });
+
+describe('hover cards', () => {
+  const d = { sha: 'abcdef1234567890', author: 'Ann Lee', email: 'ann@x.io', time: 1000, message: 'Fix the thing (#12)\n\n- first\n- second\n\nCo-authored-by: Bo Ko <bo@x.io>', filesAdded: 0, filesChanged: 1, filesDeleted: 0, additions: 1, deletions: 1 };
+  it('shared card: bold title, status, details, action bar', () => {
+    const m = p.mdCard({ title: 'T*', icon: 'cloud', status: 'S', details: ['a', 'b'], actions: [{ icon: 'copy', tip: 'Copy "it"', command: 'x.y', args: { a: 1 } }] });
+    expect(m).toBe(`$(cloud) **T\\***\n\nS\n\na  \nb\n\n---\n\n[$(copy)](command:x.y?${encodeURIComponent('[{"a":1}]')} "Copy 'it'")`);
+  });
+  it('blame hover: header, message markdown, PR line, action bar, diff', () => {
+    const m = p.blameHoverMarkdown(d as any, { root: '/r', file: 'a.ts', web: 'https://github.com/o/r', nowMs: 1000 * 1000 + 3600_000, dateText: 'DATE', hunk: '@@ -1 +1 @@\n-a\n+b' });
+    expect(m).toMatch(/^\$\(account\) \*\*Ann Lee\*\* \$\(github\)&nbsp;&nbsp;\$\(history\) 1 hour ago \(DATE\)/);
+    expect(m).toContain('[#12](https://github.com/o/r/pull/12)'); expect(m).toContain('- first  \n- second');
+    expect(m).toContain('Co-authored-by: [Bo Ko](mailto:bo@x.io)');
+    expect(m).toContain('$(git-pull-request) [GitHub Issue or Pull Request #12](https://github.com/o/r/pull/12)');
+    expect(m).toContain('[$(git-commit) abcdef1](command:gitKitchen.commit.copySha?'); expect(m).toContain('command:gitKitchen.commit.openOnRemote?'); for (const id of ['commit.copyMessage', 'commit.search', 'commit.reveal', 'blame.comparePrevious', 'blame.openRevision', 'blame.previous']) expect(m).toContain(`command:gitKitchen.${id}?`);
+    expect(m).toContain('```diff\n@@ -1 +1 @@\n-a\n+b\n```'); expect(m).toMatch(/Changes added in \[\$\(git-commit\) abcdef1\]\(command:gitKitchen\.openCommitDiff/);
+    expect(p.messageMarkdown('<script>')).toBe('&lt;script&gt;');
+  });
+  it('row cards', () => {
+    const b = { name: 'feat/x', current: false, upstream: 'origin/feat/x', ahead: 2, behind: 1, gone: false, sha: 'abc1234', subject: 'Work', time: 0 };
+    const bm = p.branchCardMarkdown(b, { root: '/r', state: 'PR #4 open', syncText: '1 behind, 2 ahead', freshness: 'fresh', author: 'Ann', when: '1 day ago', pr: { number: 4, state: 'OPEN', url: 'https://g/4' } });
+    expect(bm).toContain('**feat/x**'); expect(bm).toContain('PR #4 open · 1 behind, 2 ahead'); expect(bm).toContain('$(arrow-down) 1 $(arrow-up) 2'); expect(bm).toContain('[PR #4](https://g/4) open'); expect(bm).toContain('$(pulse) fresh');
+    expect(p.stashCardMarkdown({ index: 0, ref: 'stash@{0}', sha: 's', message: 'On main: wip', date: '' }, { branch: 'main', dateText: 'D', when: 'now', files: 2, insertions: 3, deletions: 1 })).toMatch(/\$\(files\) 2 files · .*\+3.*-1/);
+    expect(p.worktreeCardMarkdown({ path: '/w', head: 'abcdef12', branch: 'b', bare: false, detached: false, locked: false, prunable: false, main: false }, { dirty: true, subject: 'S' })).toContain('$(circle-filled) uncommitted changes');
+    expect(p.remoteCardMarkdown({ name: 'origin', fetchUrl: 'f', pushUrl: 'p', branches: 3, web: 'https://g' })).toContain('3 branches');
+    const pr = p.prCardMarkdown({ number: 7, title: 'Add', headRefName: 'h', baseRefName: 'main', url: 'https://g/7', isDraft: false, reviewDecision: 'APPROVED', author: 'ann', checks: 'pass', mergeable: 'MERGEABLE' }, { avatar: 'https://a' });
+    expect(pr).toContain('<img src="https://a"'); expect(pr).toContain('$(pass) checks passing'); expect(pr).toContain('`main` ← `h`');
+    expect(p.syncGroupCardMarkdown('Incoming', 3, 'main', 'origin/main')).toContain('3 commits to pull from `origin/main` into `main`');
+  });
+});
