@@ -368,7 +368,8 @@ async function screenshots(t: any, root: string) {
   const fresh = sh(root, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Fresh work').trim(); sh(root, 'branch', 'feat/fresh', fresh); sh(root, 'push', '-q', '-u', 'origin', 'feat/fresh'); const remoteWork = sh(root, 'commit-tree', `${fresh}^{tree}`, '-p', fresh, '-m', 'Remote work').trim(); sh(root, 'push', '-q', 'origin', `${remoteWork}:refs/heads/feat/fresh`); sh(root, 'branch', 'feat/synced', fresh); sh(root, 'push', '-q', '-u', 'origin', 'feat/synced'); sh(root, 'fetch', '-q', 'origin');
   // One branch per status for the status gallery.
   const base = sh(root, 'rev-parse', 'HEAD').trim(); let n = 0;
-  const mk = (parent = base) => sh(root, 'commit-tree', `${parent}^{tree}`, '-p', parent, '-m', `Status ${++n}`).trim();
+  const t0 = Math.floor(Date.now() / 1000) - 3600;
+  const mk = (parent = base) => { const at = `${t0 + ++n * 60} +0000`; return execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', 'commit-tree', `${parent}^{tree}`, '-p', parent, '-m', `Status ${n}`], { cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } }).toString().trim(); };
   const st = (name: string, sha: string) => { sh(root, 'branch', '-f', `status/${name}`, sha); return `status/${name}`; };
   const pushU = (b: string, sha: string) => { sh(root, 'push', '-q', '-f', 'origin', `${sha}:refs/heads/${b}`); sh(root, 'fetch', '-q', 'origin'); sh(root, 'branch', `--set-upstream-to=origin/${b}`, b); };
   { const c = mk(); pushU(st('synced', c), c); }
@@ -415,6 +416,22 @@ async function screenshots(t: any, root: string) {
     const file = path.join(out, `${name}.png`);
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'x11grab', '-video_size', '1600x1400', '-i', process.env.DISPLAY!, '-frames:v', '1', file]);
     console.log('SHOT ' + file);
+  }
+  if (process.env.GK_HOVERS) {
+    const grab = (file: string) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'x11grab', '-video_size', '1600x1400', '-i', process.env.DISPLAY!, '-frames:v', '1', file]);
+    for (const [tn, theme] of [['dark', 'Default Dark Modern'], ['light', 'Default Light Modern']]) {
+      await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Global); await wait(2000);
+      for (const spec of process.env.GK_HOVERS.split(';')) {
+        const [name, xy] = spec.split(':'); const [x, y] = xy.split(',');
+        execFileSync('xdotool', ['mousemove', '1500', '1300']); await wait(600); execFileSync('xdotool', ['mousemove', x, y]); await wait(400); execFileSync('xdotool', ['mousemove', String(+x + 3), y]); await wait(2500);
+        grab(path.join(out, `hover-${name}-${tn}.png`)); console.log('SHOT hover ' + name);
+      }
+      const ed = await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, 'a.ts')));
+      ed.selection = new vscode.Selection(0, 2, 0, 2); execFileSync('xdotool', ['mousemove', '1500', '1300']); await wait(2000);
+      await vscode.commands.executeCommand('editor.action.showHover'); await wait(3000);
+      grab(path.join(out, `hover-blame-${tn}.png`)); console.log('SHOT hover blame');
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    }
   }
   await vscode.workspace.getConfiguration('workbench').update('colorTheme', undefined, vscode.ConfigurationTarget.Global);
 }
