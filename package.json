@@ -542,6 +542,11 @@
         "command": "gitKitchen.explorer.clearDefaultWorkspace",
         "title": "Clear Default Workspace",
         "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.updateFromGitHub",
+        "title": "Update from GitHub",
+        "category": "Git Kitchen"
       }
     ],
     "menus": {

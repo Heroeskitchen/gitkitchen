@@ -582,3 +582,11 @@ export function syncGroupCardMarkdown(kind: 'Incoming' | 'Outgoing', count: numb
   const verb = kind === 'Incoming' ? `to pull from \`${escapeMd(upstream)}\` into \`${escapeMd(branch)}\`` : `to push from \`${escapeMd(branch)}\` to \`${escapeMd(upstream)}\``;
   return mdCard({ title: kind, icon: kind === 'Incoming' ? 'cloud-download' : 'cloud-upload', status: `${count} commit${count === 1 ? '' : 's'} ${verb}` });
 }
+
+/** True when version a is newer than b (plain x.y.z, a leading v is ignored). */
+export function isNewerVersion(a: string, b: string): boolean {
+  const n = (v: string) => v.replace(/^v/, '').split('-')[0].split('.').map(x => parseInt(x, 10) || 0);
+  const x = n(a), y = n(b);
+  for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0); }
+  return false;
+}
