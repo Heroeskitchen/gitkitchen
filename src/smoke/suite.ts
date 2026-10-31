@@ -76,7 +76,8 @@ export async function run() {
     const s = t.status(); assert.match(s.text, /^\$\(git-commit\) Smoke, /); assert.strictEqual(s.command?.command, 'gitKitchen.openCommitDiff');
   });
   await check('same-commit lines highlighted for cursor and hover', async () => {
-    const ed = vscode.window.activeTextEditor!; ed.selection = new vscode.Selection(0, 0, 0, 0); await t.updateBlame();
+    const ed = vscode.window.activeTextEditor!; ed.selection = new vscode.Selection(0, 0, 0, 0);
+    await new Promise(r => setTimeout(r, 400)); await t.updateBlame(); await new Promise(r => setTimeout(r, 100));
     assert.deepStrictEqual(t.same(), [2]);
     await vscode.commands.executeCommand('vscode.executeHoverProvider', ed.document.uri, new vscode.Position(2, 0));
     assert.deepStrictEqual(t.same(), []);
@@ -237,6 +238,18 @@ export async function run() {
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, new vscode.Position(0, 0));
     const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n'); assert.match(text, /\+3 ~0 -0/); assert.match(text, /Open Changes/);
     await vscode.commands.executeCommand('gitKitchen.commit.copySha', { sha }); assert.strictEqual(await vscode.env.clipboard.readText(), sha);
+  });
+  await check('branch labels colored like their icons', async () => {
+    const n = await t.loadBranches(); const flat: any[] = [];
+    const walk = async (xs: any[]) => { for (const x of xs) { if (x.contextValue === 'branchFolder') await walk(await t.loadBranches(x)); else flat.push(x); } }; await walk(n);
+    const main = flat.find(x => x.data.branch.name === 'main'); const stale = flat.find(x => x.data.branch.name === 'old/stale'); const aging = flat.find(x => x.data.branch.name === 'chore/aging');
+    for (const x of [main, stale, aging]) { assert.strictEqual(x.resourceUri.scheme, 'gitkitchen-branch'); assert.strictEqual(x.command, undefined); assert.ok(x.iconPath instanceof vscode.ThemeIcon); }
+    const dec = (x: any) => t.branchDecorations.provideFileDecoration(x.resourceUri, new vscode.CancellationTokenSource().token);
+    assert.strictEqual(dec(main).color.id, 'gitKitchen.activeBranchForeground'); assert.strictEqual(main.iconPath.color.id, 'gitKitchen.activeBranchForeground');
+    assert.strictEqual(dec(stale).color.id, 'gitKitchen.branchStaleForeground'); assert.strictEqual(dec(stale).color.id, stale.iconPath.color.id);
+    assert.strictEqual(dec(aging).color.id, aging.iconPath.color.id); assert.strictEqual(dec(aging).badge, undefined);
+    const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.colorLabels', false, vscode.ConfigurationTarget.Global);
+    assert.strictEqual(dec(main), undefined); await c.update('branches.colorLabels', undefined, vscode.ConfigurationTarget.Global);
   });
   if (process.env.GK_SHOTS) await screenshots(t, root);
   console.log('\n===== GIT KITCHEN SMOKE =====\n' + results.join('\n') + '\n========================');

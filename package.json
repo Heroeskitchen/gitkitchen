@@ -1444,10 +1444,10 @@
           "default": true,
           "description": "Mark added, changed and deleted lines against HEAD in the gutter."
         },
-        "gitKitchen.branches.colorActiveLabel": {
+        "gitKitchen.branches.colorLabels": {
           "type": "boolean",
-          "default": false,
-          "description": "Also color the current branch's label, not only its icon."
+          "default": true,
+          "description": "Color branch names with the same active or freshness color as their icon."
         },
         "gitKitchen.staleness.agingDays": {
           "type": "number",

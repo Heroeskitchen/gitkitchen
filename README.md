@@ -102,7 +102,7 @@ Download or build `gitkitchen-<version>.vsix`, then run `cursor --install-extens
 | `gitKitchen.staleness.agingDays` | `14` | Days without commits before a branch counts as aging. |
 | `gitKitchen.staleness.staleDays` | `60` | Days without commits before a branch counts as stale. |
 | `gitKitchen.staleness.behindCount` | `20` | Commits behind before a branch counts as stale. |
-| `gitKitchen.branches.colorActiveLabel` | `false` | Also color the active branch's label. |
+| `gitKitchen.branches.colorLabels` | `true` | Color branch names with the same active or freshness color as their icon. |
 
 ## Development
 ```sh

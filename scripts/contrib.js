@@ -124,7 +124,7 @@ pkg.contributes = {
     'gitKitchen.blame.changesHover': { type: 'boolean', default: true, description: 'Show the line\'s diff hunk from its commit in the blame hover.' },
     'gitKitchen.statusBar.enabled': { type: 'boolean', default: true, description: 'Show the current line\'s author and time in the status bar. Click to open the commit changes.' },
     'gitKitchen.changes.gutter': { type: 'boolean', default: true, description: 'Mark added, changed and deleted lines against HEAD in the gutter.' },
-    'gitKitchen.branches.colorActiveLabel': { type: 'boolean', default: false, description: 'Also color the current branch\'s label, not only its icon.' },
+    'gitKitchen.branches.colorLabels': { type: 'boolean', default: true, description: 'Color branch names with the same active or freshness color as their icon.' },
     'gitKitchen.staleness.agingDays': { type: 'number', default: 14, minimum: 0, description: 'A branch whose last commit is at least this many days old is shown as aging.' },
     'gitKitchen.staleness.staleDays': { type: 'number', default: 60, minimum: 0, description: 'A branch whose last commit is more than this many days old is shown as stale.' },
     'gitKitchen.staleness.behindCount': { type: 'number', default: 20, minimum: 0, description: 'A branch more than this many commits behind its upstream (or the main branch when it has none) is shown as stale. Any commits behind marks it as aging.' },

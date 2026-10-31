@@ -273,14 +273,16 @@ const fresh = new Map<string, ReturnType<typeof P.freshness>>();
 let merged = new Set<string>(); let mergedBase = 'main'; let allPrs: P.BranchPrInfo[] = [];
 const FRESH_COLOR: Record<P.Freshness, string> = { fresh: 'gitKitchen.branchFreshForeground', aging: 'gitKitchen.branchAgingForeground', stale: 'gitKitchen.branchStaleForeground' };
 const BRANCH_SCHEME = 'gitkitchen-branch';
+const BRANCH_LABEL_COLOR: Record<string, string> = { active: 'gitKitchen.activeBranchForeground', gone: 'gitKitchen.branchGoneForeground', ...FRESH_COLOR };
 const activeLabelEmitter = new vscode.EventEmitter<undefined>();
 const activeLabelDecorations: vscode.FileDecorationProvider = {
   onDidChangeFileDecorations: activeLabelEmitter.event,
   provideFileDecoration(uri) {
     if (uri.scheme === CHANGE_SCHEME) { const st = STATUS_INFO[uri.query]; return st ? { badge: uri.query, tooltip: st.tip, color: new vscode.ThemeColor(st.color), propagate: false } : undefined; }
-    if (uri.scheme !== BRANCH_SCHEME || uri.query !== 'current') return;
-    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorActiveLabel', false)) return;
-    return { color: new vscode.ThemeColor('gitKitchen.activeBranchForeground'), propagate: false };
+    if (uri.scheme !== BRANCH_SCHEME) return;
+    const color = BRANCH_LABEL_COLOR[uri.query]; if (!color) return;
+    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true)) return;
+    return { color: new vscode.ThemeColor(color), propagate: false };
   },
 };
 function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
@@ -293,8 +295,10 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const f = b.current ? undefined : fresh.get(b.name);
   const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
   x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}${st.state ? '\n' + st.state : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}${f ? '\n' + f.reason : ''}${b.gone ? '\nupstream gone' : ''}`;
-  x.iconPath = icon(st.icon, b.current ? 'gitKitchen.activeBranchForeground' : b.gone ? 'gitKitchen.branchGoneForeground' : f ? FRESH_COLOR[f.state] : undefined);
-  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: b.current ? 'current' : '' });
+  const tone = b.current ? 'active' : b.gone ? 'gone' : f ? f.state : '';
+  x.iconPath = icon(st.icon, BRANCH_LABEL_COLOR[tone]);
+  // The URI only carries the label color; rows keep their ThemeIcon and have no open command.
+  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone });
   x.id = `branch:${b.name}`; x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
   return x;
 }
@@ -876,7 +880,7 @@ export async function activate(c: vscode.ExtensionContext) {
   cmd('gitKitchen.operation.skip', () => runOperation('skip'));
   cmd('gitKitchen.operation.abort', () => runOperation('abort'));
   c.subscriptions.push(vscode.window.registerFileDecorationProvider(activeLabelDecorations), activeLabelEmitter,
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen.branches.colorActiveLabel')) activeLabelEmitter.fire(undefined); }));
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen.branches.colorLabels')) activeLabelEmitter.fire(undefined); }));
   await updateRemoteContext();
   await watchGitDir();
   // Refresh trees when the repo's HEAD or refs change.
@@ -911,4 +915,4 @@ export function deactivate() {}
 
 // Exposed for the smoke test.
 const views: Record<string, vscode.TreeView<Node>> = {};
-export const _test = { views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+export const _test = { branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
