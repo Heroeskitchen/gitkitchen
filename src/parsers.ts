@@ -81,7 +81,7 @@ export function parseLog(out: string): Commit[] {
   });
 }
 
-export interface BlameLine { line: number; sha: string; author: string; authorTime: number; summary: string; filename: string; uncommitted: boolean }
+export interface BlameLine { line: number; sha: string; author: string; authorTime: number; summary: string; filename: string; uncommitted: boolean; origLine?: number }
 /** Parse `git blame --porcelain` (or --incremental-like porcelain) into one entry per final line. */
 export function parseBlamePorcelain(out: string): BlameLine[] {
   const info = new Map<string, { author: string; authorTime: number; summary: string; filename: string }>();
@@ -90,7 +90,7 @@ export function parseBlamePorcelain(out: string): BlameLine[] {
   while (i < lines.length) {
     const h = /^([0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/.exec(lines[i]);
     if (!h) { i++; continue; }
-    const sha = h[1]; const finalLine = +h[3];
+    const sha = h[1]; const origLine = +h[2]; const finalLine = +h[3];
     const meta = info.get(sha) ?? { author: '', authorTime: 0, summary: '', filename: '' };
     i++;
     while (i < lines.length && !lines[i].startsWith('\t')) {
@@ -103,7 +103,7 @@ export function parseBlamePorcelain(out: string): BlameLine[] {
     }
     info.set(sha, meta);
     i++; // content line
-    res.push({ line: finalLine, sha, ...meta, uncommitted: /^0+$/.test(sha) });
+    res.push({ line: finalLine, origLine, sha, ...meta, uncommitted: /^0+$/.test(sha) });
   }
   return res.sort((a, b) => a.line - b.line);
 }
@@ -244,4 +244,50 @@ export function lensSummary(lines: BlameLine[], start: number, end: number, nowM
   const shown = authors.slice(0, 3).join(', ') + (authors.length > 3 ? `, +${authors.length - 3}` : '');
   return { latest, authors, label: `${latest.author}, ${relativeTime(latest.authorTime, nowMs)}`,
     authorsLabel: `${authors.length} ${authors.length === 1 ? 'author' : 'authors'} (${shown})` };
+}
+
+export interface LineChanges { added: number[]; modified: number[]; deletedAfter: number[] }
+/** Classify `git diff -U0` hunks into added, modified and deleted lines (new side, 1-based). */
+export function classifyChanges(diff: string): LineChanges {
+  const res: LineChanges = { added: [], modified: [], deletedAfter: [] };
+  for (const l of diff.split('\n')) {
+    const m = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l); if (!m) continue;
+    const oldCount = m[1] === undefined ? 1 : +m[1]; const start = +m[2]; const count = m[3] === undefined ? 1 : +m[3];
+    if (count === 0) { res.deletedAfter.push(start); continue; }
+    const modified = Math.min(oldCount, count);
+    for (let i = 0; i < count; i++) (i < modified ? res.modified : res.added).push(start + i);
+    if (oldCount > count) res.deletedAfter.push(start + count - 1);
+  }
+  return res;
+}
+
+/** Final line numbers (1-based) of other lines blamed to the same commit as `line`. Empty for uncommitted lines. */
+export function sameCommitLines(lines: BlameLine[], line: number): number[] {
+  const cur = lines.find(l => l.line === line); if (!cur || cur.uncommitted) return [];
+  return lines.filter(l => l.sha === cur.sha && l.line !== line).map(l => l.line);
+}
+
+/** From a unified diff of one file, return the hunk (header and body) whose new side contains `newLine`. */
+export function hunkForLine(diff: string, newLine: number): string | undefined {
+  const lines = diff.split('\n'); let cur: string[] | undefined; let hit = false;
+  for (const l of lines) {
+    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
+    if (m) {
+      if (cur && hit) break;
+      const start = +m[1]; const count = m[2] === undefined ? 1 : +m[2];
+      cur = [l]; hit = newLine >= start && newLine < start + Math.max(count, 1);
+    } else if (cur && !l.startsWith('\\')) {
+      if (/^(diff |index |--- |\+\+\+ )/.test(l) && !hit) { cur = undefined; continue; }
+      if (/^[ +-]/.test(l) || l === '') cur.push(l);
+    }
+  }
+  if (!cur || !hit) return undefined;
+  while (cur.length > 1 && cur[cur.length - 1] === '') cur.pop();
+  return cur.join('\n');
+}
+
+/** Status bar text for a blamed line. */
+export function statusBarText(bl: BlameLine | undefined, nowMs = Date.now()): string | undefined {
+  if (!bl) return undefined;
+  return bl.uncommitted ? '$(git-commit) You, uncommitted' : `$(git-commit) ${bl.author}, ${relativeTime(bl.authorTime, nowMs)}`;
 }

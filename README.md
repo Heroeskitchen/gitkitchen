@@ -30,6 +30,10 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
 
 ### Editor
 - Current-line blame (author, relative time, message) at the end of the line, with a subtle current-line highlight.
+- Status bar blame for the current line (author and relative time); click it to open the commit's changes.
+- The blame hover includes the line's diff hunk from the commit that last changed it.
+- Other lines from the same commit are highlighted while the cursor is on a line or you hover its blame.
+- Gutter markers for added, changed and deleted lines against HEAD, including unsaved edits.
 - Code lens at the top of the file and above functions and classes: last author and time (opens that commit's
   changes) and the number of authors (shows file blame).
 - **Previous / Next Revision** and **Choose Revision** buttons in the editor title to step through the file's history
@@ -72,6 +76,10 @@ Download or build `gitkitchen-<version>.vsix`, then run `cursor --install-extens
 | `gitKitchen.blame.currentLine` | `true` | Show blame at the end of the current line. |
 | `gitKitchen.blame.hover` | `true` | Show commit details on hover. |
 | `gitKitchen.blame.highlightLine` | `true` | Highlight the current line while line blame is shown. |
+| `gitKitchen.statusBar.enabled` | `true` | Show the current line's author and time in the status bar. |
+| `gitKitchen.blame.changesHover` | `true` | Show the line's diff hunk in the blame hover. |
+| `gitKitchen.blame.highlightSameCommit` | `true` | Highlight other lines from the same commit. |
+| `gitKitchen.changes.gutter` | `true` | Mark added, changed and deleted lines against HEAD in the gutter. |
 | `gitKitchen.branches.layout` | `tree` | `tree` groups branches by `/` prefix; `list` shows them flat. |
 | `gitKitchen.heatmap.location` | `gutter` | Draw the heatmap in the `gutter` or as a line `background`. |
 | `gitKitchen.codeLens.enabled` | `true` | Show the author code lens. |

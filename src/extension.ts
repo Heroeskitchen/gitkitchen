@@ -303,7 +303,16 @@ function heatDecos(where: 'gutter' | 'background') {
 }
 let heatGutter = heatDecos('gutter'); let heatBg = heatDecos('background');
 const addedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
-const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '1px 0 0 0', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground') });
+const modifiedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.modifiedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.modifiedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
+const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '1px 0 0 0', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.deletedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
+const sameCommitDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerLane: vscode.OverviewRulerLane.Center });
+const statusItem = vscode.window.createStatusBarItem('gitKitchen.blame', vscode.StatusBarAlignment.Left, 50);
+statusItem.name = 'Git Kitchen Blame';
+let lastChanges: P.LineChanges | undefined; let lastSame: number[] = [];
+function setSameCommit(ed: vscode.TextEditor, lines: P.BlameLine[], line1: number) {
+  lastSame = vscode.workspace.getConfiguration('gitKitchen').get('blame.highlightSameCommit', true) ? P.sameCommitLines(lines, line1) : [];
+  ed.setDecorations(sameCommitDeco, lastSame.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
+}
 type AnnotMode = 'none' | 'blame' | 'heatmap' | 'changes';
 let annot: AnnotMode = 'none'; let changesBase: string | undefined;
 async function setAnnot(m: AnnotMode) {
@@ -311,7 +320,7 @@ async function setAnnot(m: AnnotMode) {
   for (const [k, v] of [['gutterBlame', annot === 'blame'], ['heatmap', annot === 'heatmap'], ['changes', annot === 'changes']] as const) await vscode.commands.executeCommand('setContext', `gitKitchen.${k}`, v);
   await updateBlame();
 }
-function clearAll(ed: vscode.TextEditor) { for (const d of [eolDeco, gutterDeco, lineHighlightDeco, addedDeco, deletedDeco, ...heatGutter, ...heatBg]) ed.setDecorations(d, []); }
+function clearAll(ed: vscode.TextEditor) { statusItem.hide(); lastChanges = undefined; lastSame = []; for (const d of [eolDeco, gutterDeco, lineHighlightDeco, addedDeco, modifiedDeco, deletedDeco, sameCommitDeco, ...heatGutter, ...heatBg]) ed.setDecorations(d, []); }
 async function updateBlame() {
   const ed = vscode.window.activeTextEditor; if (!ed) return;
   const cfg = vscode.workspace.getConfiguration('gitKitchen');
@@ -322,6 +331,13 @@ async function updateBlame() {
     ed.setDecorations(eolDeco, [{ range: new vscode.Range(line, Number.MAX_SAFE_INTEGER, line, Number.MAX_SAFE_INTEGER), renderOptions: { after: { contentText: text } } }]);
     ed.setDecorations(lineHighlightDeco, cfg.get('blame.highlightLine', true) ? [new vscode.Range(line, 0, line, 0)] : []);
   } else { ed.setDecorations(eolDeco, []); ed.setDecorations(lineHighlightDeco, []); }
+  setSameCommit(ed, b.lines, line + 1);
+  const sb = cfg.get('statusBar.enabled', true) ? P.statusBarText(bl) : undefined;
+  if (sb && bl) {
+    statusItem.text = sb; statusItem.tooltip = bl.uncommitted ? 'Uncommitted changes' : `${bl.summary}\n${bl.sha.slice(0, 8)} · click to open the commit changes`;
+    statusItem.command = bl.uncommitted ? undefined : { title: 'Open Changes', command: 'gitKitchen.openCommitDiff', arguments: [{ root: b.r, sha: bl.sha, file: bl.filename || rel(b.r, ed.document.fileName) }] };
+    statusItem.show();
+  } else statusItem.hide();
   if (annot === 'blame') {
     let prev = '';
     ed.setDecorations(gutterDeco, b.lines.map(bl => { const same = bl.sha === prev; prev = bl.sha;
@@ -337,25 +353,46 @@ async function updateBlame() {
     b.lines.forEach((l, i) => buckets[P.heatBucket(times[i], newest, oldest, heatSet.length)].push(new vscode.Range(l.line - 1, 0, l.line - 1, 0)));
     heatSet.forEach((d, i) => ed.setDecorations(d, buckets[i]));
   }
-  if (annot === 'changes') {
-    const args = ['diff', '-U0', '--no-color', ...(changesBase ? [changesBase] : ['HEAD']), '--', rel(b.r, ed.document.fileName)];
-    const { added, deletedAfter } = P.changedLines(await git(b.r, ...args).catch(() => ''));
-    ed.setDecorations(addedDeco, added.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
-    ed.setDecorations(deletedDeco, deletedAfter.map(n => new vscode.Range(Math.max(0, n), 0, Math.max(0, n), 0)));
-  } else { ed.setDecorations(addedDeco, []); ed.setDecorations(deletedDeco, []); }
+  if (annot === 'changes' || cfg.get('changes.gutter', true)) {
+    const base = annot === 'changes' && changesBase ? changesBase : 'HEAD';
+    const args = ['diff', '-U0', '--no-color', '--no-ext-diff', base, '--', rel(b.r, ed.document.fileName)];
+    let diff = '';
+    if (ed.document.isDirty) {
+      const { runStdout } = await import('./git');
+      const baseText = await git(b.r, 'show', `${base}:${rel(b.r, ed.document.fileName)}`).catch(() => '');
+      const os = await import('os'); const fs = await import('fs');
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-')); const a = path.join(dir, 'a'), c = path.join(dir, 'b');
+      fs.writeFileSync(a, baseText); fs.writeFileSync(c, ed.document.getText());
+      diff = await runStdout('git', ['diff', '--no-index', '-U0', '--no-color', '--no-ext-diff', a, c], b.r);
+      fs.rmSync(dir, { recursive: true, force: true });
+    } else diff = await git(b.r, ...args).catch(() => '');
+    lastChanges = P.classifyChanges(diff);
+    const r1 = (n: number) => new vscode.Range(n - 1, 0, n - 1, 0);
+    ed.setDecorations(addedDeco, lastChanges.added.map(r1));
+    ed.setDecorations(modifiedDeco, lastChanges.modified.map(r1));
+    ed.setDecorations(deletedDeco, lastChanges.deletedAfter.map(n => new vscode.Range(Math.max(0, n), 0, Math.max(0, n), 0)));
+  } else { lastChanges = undefined; ed.setDecorations(addedDeco, []); ed.setDecorations(modifiedDeco, []); ed.setDecorations(deletedDeco, []); }
 }
 const hoverProvider: vscode.HoverProvider = {
   async provideHover(doc, pos) {
     if (!vscode.workspace.getConfiguration('gitKitchen').get('blame.hover', true)) return;
     const b = await blameFor(doc); const bl = b?.lines[pos.line]; if (!b || !bl || bl.uncommitted) return;
     const file = bl.filename || rel(b.r, doc.fileName);
+    const ed = vscode.window.visibleTextEditors.find(e => e.document === doc);
+    if (ed) setSameCommit(ed, b.lines, pos.line + 1);
+    let hunk = '';
+    if (vscode.workspace.getConfiguration('gitKitchen').get('blame.changesHover', true) && bl.origLine) {
+      const d = await git(b.r, 'show', '--format=', '--no-color', '--no-ext-diff', '-U3', bl.sha, '--', file).catch(() => '');
+      const h = P.hunkForLine(d, bl.origLine);
+      if (h) hunk = `\n\n---\n\n**Changes in this commit**\n\n\`\`\`diff\n${h.split('\n').slice(0, 40).join('\n')}\n\`\`\``;
+    }
     const a = (o: any) => encodeURIComponent(JSON.stringify([o]));
     const md = new vscode.MarkdownString(
       `**${bl.summary}**\n\n${bl.author} · ${new Date(bl.authorTime * 1000).toLocaleString()} (${P.relativeTime(bl.authorTime)})\n\n\`${bl.sha.slice(0, 8)}\`\n\n` +
       `[Open Changes](command:gitKitchen.openCommitDiff?${a({ root: b.r, sha: bl.sha, file })}) · ` +
       `[Compare with Working File](command:gitKitchen.compareCommitWorking?${a({ root: b.r, sha: bl.sha, file: rel(b.r, doc.fileName) })}) · ` +
       `[All Files in Commit](command:gitKitchen.openCommitDiff?${a({ root: b.r, sha: bl.sha })}) · ` +
-      `[Copy Link](command:gitKitchen.copyCommitLink?${a({ root: b.r, sha: bl.sha, file, line: bl.line })})`);
+      `[Copy Link](command:gitKitchen.copyCommitLink?${a({ root: b.r, sha: bl.sha, file, line: bl.line })})` + hunk);
     md.isTrusted = true; return new vscode.Hover(md);
   }
 };
@@ -379,7 +416,7 @@ function registerBlame() {
   cmd('gitKitchen.compareCommitWorking', compareCommitWorking);
   cmd('gitKitchen.blame.openLineCommit', async () => { const ed = vscode.window.activeTextEditor; if (!ed) return; const b = await blameFor(ed.document); const bl = b?.lines[ed.selection.active.line];
     if (!b || !bl || bl.uncommitted) { vscode.window.showInformationMessage('This line is not committed yet.'); return; } await openCommitDiff({ root: b.r, sha: bl.sha, file: bl.filename }); });
-  ctx.subscriptions.push(eolDeco, gutterDeco, lineHighlightDeco, addedDeco, deletedDeco, ...heatGutter, ...heatBg,
+  ctx.subscriptions.push(eolDeco, gutterDeco, lineHighlightDeco, addedDeco, modifiedDeco, deletedDeco, sameCommitDeco, statusItem, ...heatGutter, ...heatBg,
     vscode.languages.registerHoverProvider({ scheme: 'file' }, hoverProvider),
     vscode.window.onDidChangeTextEditorSelection(scheduleBlame), vscode.window.onDidChangeActiveTextEditor(scheduleBlame),
     vscode.workspace.onDidSaveTextDocument(d => { blameCache.delete(d.uri.fsPath); scheduleBlame(); }),
@@ -682,4 +719,4 @@ export async function activate(c: vscode.ExtensionContext) {
 export function deactivate() {}
 
 // Exposed for the smoke test.
-export const _test = { compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+export const _test = { status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };

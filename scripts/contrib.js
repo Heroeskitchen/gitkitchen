@@ -91,7 +91,8 @@ menus['explorer/context'].push({ command: 'gitKitchen.explorer.reopenHere', when
 pkg.contributes = {
   commands: C, menus,
   submenus: [{ id: 'gitKitchen.annotations', label: 'File Annotations', icon: '$(eye)' }],
-  colors: [{ id: 'gitKitchen.currentLineBackground', description: 'Background of the current line while line blame is shown.', defaults: { dark: '#ffffff0b', light: '#0000000a', highContrast: null, highContrastLight: null } }],
+  colors: [{ id: 'gitKitchen.currentLineBackground', description: 'Background of the current line while line blame is shown.', defaults: { dark: '#ffffff0b', light: '#0000000a', highContrast: null, highContrastLight: null } },
+    { id: 'gitKitchen.sameCommitBackground', description: 'Background of other lines from the same commit as the current line.', defaults: { dark: '#4fa3ff1a', light: '#0066cc14', highContrast: null, highContrastLight: null } }],
   views: { scm: [
     { id: 'gitKitchen.commits', name: 'Commits' }, { id: 'gitKitchen.branches', name: 'Branches' }, { id: 'gitKitchen.remotes', name: 'Remotes' }, { id: 'gitKitchen.stashes', name: 'Stashes' }, { id: 'gitKitchen.worktrees', name: 'Worktrees' },
     { id: 'gitKitchen.prs', name: 'Pull Requests' }, { id: 'gitKitchen.history', name: 'File History' }, { id: 'gitKitchen.dual', name: 'Not on Client Remote', visibility: 'collapsed' },
@@ -100,6 +101,10 @@ pkg.contributes = {
   configuration: { title: 'Git Kitchen', properties: {
     'gitKitchen.blame.currentLine': { type: 'boolean', default: true, description: 'Show blame at the end of the current line.' },
     'gitKitchen.blame.highlightLine': { type: 'boolean', default: true, description: 'Highlight the whole current line while line blame is shown.' },
+    'gitKitchen.blame.highlightSameCommit': { type: 'boolean', default: true, description: 'Highlight other lines from the same commit as the current or hovered line.' },
+    'gitKitchen.blame.changesHover': { type: 'boolean', default: true, description: 'Show the line\'s diff hunk from its commit in the blame hover.' },
+    'gitKitchen.statusBar.enabled': { type: 'boolean', default: true, description: 'Show the current line\'s author and time in the status bar. Click to open the commit changes.' },
+    'gitKitchen.changes.gutter': { type: 'boolean', default: true, description: 'Mark added, changed and deleted lines against HEAD in the gutter.' },
     'gitKitchen.branches.layout': { type: 'string', enum: ['tree', 'list'], default: 'tree', description: 'Show branches grouped into folders by their / prefix, or as a flat list.' },
     'gitKitchen.heatmap.location': { type: 'string', enum: ['gutter', 'background'], default: 'gutter', description: 'Where the file heatmap is drawn.' },
     'gitKitchen.codeLens.enabled': { type: 'boolean', default: true, description: 'Show the last author and author count above the file and its functions and classes.' },
