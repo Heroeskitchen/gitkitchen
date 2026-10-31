@@ -122,4 +122,4 @@ Built with AI-assisted development.
 
 ## Third-party assets
 
-`media/icons/branch-behind-*.svg` and `branch-merged-*.svg` are derived from the `git-branch` and `git-merge` icons of [vscode-codicons](https://github.com/microsoft/vscode-codicons), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+The SVGs in `media/icons/` are derived from the `git-branch`, `git-merge`, `git-pull-request`, `git-pull-request-draft` and `worktree` icons of [vscode-codicons](https://github.com/microsoft/vscode-codicons), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

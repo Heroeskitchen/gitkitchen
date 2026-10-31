@@ -336,8 +336,10 @@ const fresh = new Map<string, ReturnType<typeof P.freshness>>();
 let merged = new Set<string>(); let mergedBase = 'main'; let allPrs: P.BranchPrInfo[] = [];
 const BRANCH_SCHEME = 'gitkitchen-branch';
 const syncTimes = new Map<string, number>();
-function overlayIcon(kind: 'behind' | 'merged'): { light: vscode.Uri; dark: vscode.Uri } {
-  const f = (theme: string) => vscode.Uri.joinPath(ctx.extensionUri, 'media', 'icons', `branch-${kind}-${theme}.svg`);
+const GLYPH_FILE: Record<string, string> = { 'git-branch': 'branch', 'git-merge': 'merge', 'git-pull-request': 'pr', 'git-pull-request-draft': 'draft', worktree: 'worktree' };
+/** Codicon glyph with a small status dot (codicons cannot be overlaid, so these are prebuilt SVGs). */
+function overlayIcon(glyph: string, dot: string): { light: vscode.Uri; dark: vscode.Uri } {
+  const f = (theme: string) => vscode.Uri.joinPath(ctx.extensionUri, 'media', 'icons', `${glyph}-${dot}-${theme}.svg`);
   return { light: f('light'), dark: f('dark') };
 }
 const BRANCH_LABEL_COLOR: Record<string, string> = { gone: 'gitKitchen.branchGoneForeground', synced: 'gitKitchen.branchSyncedForeground', ahead: 'gitKitchen.branchAheadForeground', behind: 'gitKitchen.branchBehindForeground' };
@@ -364,8 +366,9 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   // Merged branches: default label, merge glyph with a purple dot.
   const tone = mergedRow ? '' : b.gone ? 'gone' : P.syncTone(b, b.upstream ? syncTimes.get(b.upstream) : undefined, Date.now(), vscode.workspace.getConfiguration('gitKitchen').get('recentSyncMinutes', 60));
   if (b.upstream && !b.gone) x.tooltip += `\n${P.syncText(b, tone === 'gone' ? undefined : tone)}`;
-  // Behind: the branch glyph with a red dot (codicons cannot be overlaid). Otherwise the codicon, tinted like the label.
-  x.iconPath = mergedRow ? overlayIcon('merged') : tone === 'behind' && st.icon === 'git-branch' ? overlayIcon('behind') : icon(st.icon, BRANCH_LABEL_COLOR[tone]);
+  // Every colored state: its glyph in that color with a matching dot; merged: default glyph, purple dot.
+  const dot = mergedRow ? 'merged' : tone; const glyph = GLYPH_FILE[st.icon];
+  x.iconPath = dot && glyph ? overlayIcon(glyph, dot) : icon(st.icon);
   // The URI only carries the label color; rows have no open command.
   x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone });
   x.id = `branch:${b.name}`; x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;

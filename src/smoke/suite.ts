@@ -149,7 +149,7 @@ export async function run() {
     assert.strictEqual(stale.iconPath.color, undefined); assert.match(stale.tooltip, /last commit 90d ago · stale/);
     const two = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[1];
     assert.strictEqual(two.iconPath.color, undefined); assert.match(two.tooltip, /0 behind · last commit 0d ago · fresh/);
-    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.match(one.iconPath.dark.path, /branch-merged-dark\.svg$/); assert.match(one.iconPath.light.path, /branch-merged-light\.svg$/); assert.ok(fs.existsSync(one.iconPath.dark.fsPath)); assert.match(one.tooltip, /Merged into main/);
+    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.match(one.iconPath.dark.path, /merge-merged-dark\.svg$/); assert.match(one.iconPath.light.path, /merge-merged-light\.svg$/); assert.ok(fs.existsSync(one.iconPath.dark.fsPath)); assert.match(one.tooltip, /Merged into main/);
     assert.strictEqual(t.branchDecorations.provideFileDecoration(one.resourceUri, new vscode.CancellationTokenSource().token), undefined);
     assert.strictEqual(aging.iconPath.id, 'git-branch');
   });
@@ -304,10 +304,10 @@ export async function run() {
     sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local only');
     try {
       const ahead = (await t.loadBranches())[0];
-      assert.strictEqual(ahead.iconPath.id, 'git-branch'); assert.strictEqual(ahead.iconPath.color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).badge, undefined);
+      assert.match(ahead.iconPath.dark.path, /branch-ahead-dark\.svg$/); assert.ok(fs.existsSync(ahead.iconPath.light.fsPath)); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).badge, undefined);
       assert.match(String(ahead.description), /^0↓ 1↑ ⇄ syncr\/main • /); assert.match(String(ahead.tooltip), /0 behind, 1 ahead of syncr\/main \(unpushed commits\)/);
       sh(root, 'push', '-q', 'syncr', 'main'); const synced = (await t.loadBranches())[0];
-      assert.strictEqual(synced.iconPath.color.id, 'gitKitchen.branchSyncedForeground'); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
+      assert.match(synced.iconPath.light.path, /branch-synced-light\.svg$/); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
       await c.update('recentSyncMinutes', 0, vscode.ConfigurationTarget.Global); await new Promise(r => setTimeout(r, 1100));
       const old = (await t.loadBranches())[0]; assert.strictEqual(old.iconPath.color, undefined); assert.strictEqual(dec(old), undefined);
       await c.update('recentSyncMinutes', undefined, vscode.ConfigurationTarget.Global);
@@ -360,11 +360,13 @@ async function screenshots(t: any, root: string) {
   { const c = mk(); const b = st('diverged', c); pushU(b, c); sh(root, 'push', '-q', '-f', 'origin', `${mk(c)}:refs/heads/${b}`); sh(root, 'fetch', '-q', 'origin'); sh(root, 'branch', '-f', b, mk(c)); }
   st('no-upstream', mk());
   { const c = mk(); const b = st('upstream-gone', c); pushU(b, c); sh(root, 'push', '-q', 'origin', '--delete', b); sh(root, 'fetch', '-q', '--prune', 'origin'); }
-  st('open-pr', mk()); st('draft-pr', mk()); st('merged', `${base}~1`);
-  { const b = st('worktree', mk()); sh(root, 'worktree', 'add', '-q', fs.mkdtempSync(path.join(require('os').tmpdir(), 'gk-wt-')), b); }
+  { const c = mk(); pushU(st('open-pr', c), c); }
+  { const c = mk(); const b = st('draft-pr', c); pushU(b, c); sh(root, 'branch', '-f', b, mk(c)); }
+  st('merged', `${base}~1`);
+  { const c = mk(); const b = st('worktree', c); pushU(b, c); sh(root, 'push', '-q', '-f', 'origin', `${mk(c)}:refs/heads/${b}`); sh(root, 'fetch', '-q', 'origin'); sh(root, 'worktree', 'add', '-q', fs.mkdtempSync(path.join(require('os').tmpdir(), 'gk-wt-')), b); }
   await t.setBranchPrs([{ number: 41, state: 'OPEN', isDraft: false, headRefName: 'status/open-pr' }, { number: 42, state: 'OPEN', isDraft: true, headRefName: 'status/draft-pr' }]);
   // Active branch behind (and ahead of) its upstream.
-  sh(root, 'push', '-q', '-f', 'origin', `${mk(base)}:refs/heads/main`); sh(root, 'fetch', '-q', 'origin');
+  sh(root, 'push', '-q', '-f', 'origin', process.env.GK_STATUS === 'insync' ? 'main:refs/heads/main' : `${mk(base)}:refs/heads/main`); sh(root, 'fetch', '-q', 'origin');
   try { sh(root, 'merge', 'shot/conflict'); } catch { /* conflict expected */ }
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   try { execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'code', 'windowmove', '0', '0', 'windowsize', '1600', '1400']); } catch { /* best effort */ }
@@ -383,6 +385,12 @@ async function screenshots(t: any, root: string) {
     if (gallery) { await wait(1000); const sf = top.find((x: any) => x.label === 'status'); const dv = sf && (await t.loadBranches(sf)).find((x: any) => x.label === 'diverged'); if (dv) { try { await bv.reveal(dv, { expand: true }); } catch { /* ignore */ } } }
   try { await bv.reveal(top[0], { select: true, focus: true, expand: !process.env.GK_STATUS }); } catch { /* ignore */ }
   await wait(1500);
+  if (process.env.GK_EXPAND) {
+    await vscode.commands.executeCommand('gitKitchen.branches.focus'); await wait(500);
+    execFileSync('xdotool', ['type', '--delay', '60', process.env.GK_EXPAND]); await wait(800);
+    execFileSync('xdotool', ['key', 'Return']); await wait(400); execFileSync('xdotool', ['key', 'Escape']); await wait(300); execFileSync('xdotool', ['key', 'Right']); await wait(2000);
+  }
+  if (process.env.GK_CLICK) { const [x, y] = process.env.GK_CLICK.split(','); execFileSync('xdotool', ['mousemove', x, y, 'click', '1', 'mousemove', '900', '900']); await wait(2000); }
   for (const [name, theme] of [['scm-dark', 'Default Dark Modern'], ['scm-light', 'Default Light Modern']]) {
     await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Global); await wait(2500);
     try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
