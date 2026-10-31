@@ -17,7 +17,7 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
   common base or the working tree (or select any two branches to compare). Branches are grouped into folders by their
   `/` prefix (`feat/`, `fix/`, ...) or shown as a flat list, with upstream tracking, ahead/behind counts,
   last-commit time, worktree markers and pull request badges. Expand a branch to browse its commits.
-  Icons show state: the active branch is a filled green check, an open pull request shows the pull request icon
+  Icons show state: the active branch is a green branch icon, an open pull request shows the pull request icon
   (draft or ready), a branch merged into main shows the merge icon, a worktree branch shows the worktree icon.
   Other branches are tinted by freshness (fresh, aging, stale) with the numbers in the tooltip. Hover a row for
   inline actions: pull, push and create pull request on the current branch; switch, compare with the current

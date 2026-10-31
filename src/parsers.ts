@@ -363,7 +363,7 @@ export function prForBranch(prs: BranchPrInfo[], branch: string): BranchPrInfo |
 }
 /** Icon and state text for a branch row, by priority: active, open PR, merged, worktree, plain branch. */
 export function branchState(b: { current: boolean; pr?: BranchPrInfo; mergedInto?: string; worktree: boolean }): { icon: string; state?: string } {
-  if (b.current) return { icon: 'pass-filled', state: 'Current branch' };
+  if (b.current) return { icon: 'git-branch', state: 'Current branch' };
   if (b.pr?.state === 'OPEN') return b.pr.isDraft ? { icon: 'git-pull-request-draft', state: `PR #${b.pr.number} draft` } : { icon: 'git-pull-request', state: `PR #${b.pr.number} open` };
   if (b.pr?.state === 'MERGED') return { icon: 'git-merge', state: `PR #${b.pr.number} merged` };
   if (b.mergedInto) return { icon: 'git-merge', state: `Merged into ${b.mergedInto}` };
@@ -435,3 +435,9 @@ export function commitCardMarkdown(d: CommitDetails, o: { nowMs?: number; web?: 
   return `${who}, ${rel} (${date}) · ${shaPart} · ${files} · ${lines}\n\n${msg}${branches ? `\n\n$(cloud) ${branches}` : ''}`;
 }
 export const sortBranches = pinSort;
+/** Branch row description: `⇄ origin/main ↑1 ↓2 • 14 hours ago`, or `no upstream • ...`, plus any extras. */
+export function branchDescription(b: { upstream?: string; ahead?: number; behind?: number; gone?: boolean }, when: string, extras: string[] = []): string {
+  const ab = [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : '', b.gone ? 'gone' : ''].filter(Boolean).join(' ');
+  const up = b.upstream ? `⇄ ${b.upstream}${ab ? ' ' + ab : ''}` : 'no upstream';
+  return [up, when, ...extras].filter(Boolean).join(' • ');
+}

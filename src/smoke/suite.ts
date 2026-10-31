@@ -33,7 +33,7 @@ export async function run() {
     assert.deepStrictEqual((await t.loadBranches()).map((x: any) => x.label), ['main', 'chore', 'feature', 'old', 'merged-one']);
     await c.update('sortBy', undefined, vscode.ConfigurationTarget.Global);
     const kids = await t.loadBranches(n[1]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
-    assert.ok(kids[0].contextValue.includes('worktree')); assert.match(String(kids[0].description), /no upstream · .*ago|just now/);
+    assert.ok(kids[0].contextValue.includes('worktree')); assert.match(String(kids[0].description), /^no upstream • (.*ago|just now) • worktree$/);
   });
   await check('branches list layout setting flattens', async () => {
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.layout', 'list', vscode.ConfigurationTarget.Global);
@@ -140,9 +140,9 @@ export async function run() {
   });
   const cp = require('child_process'); const fs = require('fs'); const os = require('os');
   const sh = (cwd: string, ...a: string[]) => cp.execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', ...a], { cwd }).toString();
-  await check('branch icons: active pass-filled, freshness tints, tooltip numbers', async () => {
+  await check('branch icons: active git-branch in green, freshness tints, tooltip numbers', async () => {
     const n = await t.loadBranches();
-    assert.strictEqual(n[0].iconPath.id, 'pass-filled'); assert.strictEqual(n[0].iconPath.color.id, 'gitKitchen.activeBranchForeground');
+    assert.strictEqual(n[0].iconPath.id, 'git-branch'); assert.match(String(n[0].description), /^no upstream • /); assert.strictEqual(n[0].iconPath.color.id, 'gitKitchen.activeBranchForeground');
     const aging = (await t.loadBranches(n.find((x: any) => x.label === 'chore')))[0];
     assert.strictEqual(aging.iconPath.color.id, 'gitKitchen.branchAgingForeground'); assert.match(aging.tooltip, /1 behind · last commit 20d ago · aging/);
     const stale = (await t.loadBranches(n.find((x: any) => x.label === 'old')))[0];
@@ -251,8 +251,9 @@ export async function run() {
     assert.strictEqual(dec(main).color.id, 'gitKitchen.activeBranchForeground'); assert.strictEqual(main.iconPath.color.id, 'gitKitchen.activeBranchForeground');
     assert.strictEqual(dec(stale).color.id, 'gitKitchen.branchStaleForeground'); assert.strictEqual(dec(stale).color.id, stale.iconPath.color.id);
     assert.strictEqual(dec(aging).color.id, aging.iconPath.color.id); assert.strictEqual(dec(aging).badge, undefined);
+    assert.strictEqual(dec(main).badge, '✓'); assert.strictEqual(dec(main).tooltip, 'Current branch');
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.colorLabels', false, vscode.ConfigurationTarget.Global);
-    assert.strictEqual(dec(main), undefined); await c.update('branches.colorLabels', undefined, vscode.ConfigurationTarget.Global);
+    assert.strictEqual(dec(main).badge, '✓'); assert.strictEqual(dec(stale), undefined); await c.update('branches.colorLabels', undefined, vscode.ConfigurationTarget.Global);
   });
   await check('stash rows: inline apply and trash; delete asks first', async () => {
     const pkg = require(path.join(__dirname, '..', '..', 'package.json'));

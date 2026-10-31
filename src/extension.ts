@@ -284,17 +284,18 @@ const activeLabelDecorations: vscode.FileDecorationProvider = {
     if (uri.scheme === CHANGE_SCHEME) { const st = STATUS_INFO[uri.query]; return st ? { badge: uri.query, tooltip: st.tip, color: new vscode.ThemeColor(st.color), propagate: false } : undefined; }
     if (uri.scheme !== BRANCH_SCHEME) return;
     const color = BRANCH_LABEL_COLOR[uri.query]; if (!color) return;
-    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true)) return;
-    return { color: new vscode.ThemeColor(color), propagate: false };
+    const active = uri.query === 'active';
+    const colorLabel = vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true);
+    if (!colorLabel && !active) return;
+    // The active branch also gets a colored check badge at the right edge of the row.
+    return { color: colorLabel || active ? new vscode.ThemeColor(color) : undefined, badge: active ? '✓' : undefined, tooltip: active ? 'Current branch' : undefined, propagate: false };
   },
 };
 function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
   const pr = prs.find(p => p.headRefName === b.name);
   const hasWt = !!b.worktreePath && !b.current;
   const x = new Node(label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
-  const track = [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : '', b.gone ? 'gone' : ''].filter(Boolean).join(' ');
-  const up = b.upstream ? `${track ? track + ' ' : ''}${b.upstream}` : 'no upstream';
-  x.description = [up, b.time ? P.relativeTime(b.time) : '', pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean).join(' · ');
+  x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);
   const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
   x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}${st.state ? '\n' + st.state : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}${f ? '\n' + f.reason : ''}${b.gone ? '\nupstream gone' : ''}`;

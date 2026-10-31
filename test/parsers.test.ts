@@ -251,7 +251,7 @@ describe('0.3.0 helpers', () => {
 describe('branch state icons', () => {
   const pr = (number: number, state: any, isDraft = false, headRefName = 'b'): p.BranchPrInfo => ({ number, state, isDraft, headRefName });
   it('priority: active > open PR > merged > worktree > branch', () => {
-    expect(p.branchState({ current: true, pr: pr(1, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'pass-filled', state: 'Current branch' });
+    expect(p.branchState({ current: true, pr: pr(1, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-branch', state: 'Current branch' });
     expect(p.branchState({ current: false, pr: pr(12, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-pull-request', state: 'PR #12 open' });
     expect(p.branchState({ current: false, pr: pr(3, 'OPEN', true), worktree: false })).toEqual({ icon: 'git-pull-request-draft', state: 'PR #3 draft' });
     expect(p.branchState({ current: false, pr: pr(4, 'MERGED'), worktree: true })).toEqual({ icon: 'git-merge', state: 'PR #4 merged' });
@@ -350,5 +350,13 @@ describe('pinned sort in every view', () => {
     const prs = [{ h: 'a', u: '2026-10-01T00:00:00Z' }, { h: 'b', u: '2026-10-30T00:00:00Z' }, { h: 'cur', u: '2026-01-01T00:00:00Z' }, { h: 'd', u: '' }];
     expect(p.pinSort(prs, { current: x => x.h === 'cur', name: x => x.h, time: x => Date.parse(x.u) || 0, by: 'date' }).map(x => x.h)).toEqual(['cur', 'b', 'a', 'd']);
     expect(p.parsePrs('[{"number":1,"updatedAt":"2026-10-30T00:00:00Z"}]')[0].updatedAt).toBe('2026-10-30T00:00:00Z');
+  });
+});
+
+describe('branch description', () => {
+  it('formats upstream, ahead/behind and time', () => {
+    expect(p.branchDescription({ upstream: 'origin/main' }, '14 hours ago')).toBe('⇄ origin/main • 14 hours ago');
+    expect(p.branchDescription({ upstream: 'origin/x', ahead: 1, behind: 2 }, '1 day ago', ['PR #3'])).toBe('⇄ origin/x ↑1 ↓2 • 1 day ago • PR #3');
+    expect(p.branchDescription({}, 'just now', ['worktree'])).toBe('no upstream • just now • worktree');
   });
 });
