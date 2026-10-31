@@ -1541,7 +1541,7 @@
         },
         "gitKitchen.blame.highlightSameCommit": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Highlight other lines from the same commit as the current or hovered line."
         },
         "gitKitchen.blame.changesHover": {
@@ -1640,7 +1640,7 @@
         },
         "gitKitchen.codeLens.symbols": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Also show the code lens above functions and classes, not only at the top of the file."
         },
         "gitKitchen.blame.hover": {
