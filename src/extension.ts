@@ -512,7 +512,7 @@ function registerStashes() {
 }
 
 // ---------- Blame ----------
-const eolDeco = vscode.window.createTextEditorDecorationType({ after: { color: new vscode.ThemeColor('editorCodeLens.foreground'), margin: '0 0 0 3em', fontStyle: 'italic' }, rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen });
+const eolDeco = vscode.window.createTextEditorDecorationType({ after: { color: new vscode.ThemeColor('editorCodeLens.foreground'), margin: '0 0 0 3em', fontWeight: '300', textDecoration: 'none; font-family: var(--vscode-editor-font-family), monospace; font-size: 0.85em' }, rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen });
 const gutterDeco = vscode.window.createTextEditorDecorationType({ before: { color: new vscode.ThemeColor('editorLineNumber.foreground'), margin: '0 1.5em 0 0', width: '22ch', textDecoration: 'none; display: inline-block; overflow: hidden; white-space: pre' } });
 const blameCache = new Map<string, { version: number; lines: P.BlameLine[] }>();
 let gutterOn = false;
