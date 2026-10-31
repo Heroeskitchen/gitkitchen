@@ -1,0 +1,10 @@
+src/**
+test/**
+node_modules/**
+.vscode-test/**
+tsconfig.json
+vitest.config.*
+**/*.map
+out/smoke/**
+scripts/**
+.gitignore

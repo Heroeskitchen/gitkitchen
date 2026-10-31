@@ -1,0 +1,183 @@
+// Pure parsers for git / gh output. No vscode imports so they run under Vitest.
+
+export const SEP = '\x1f';
+
+export interface Branch { name: string; current: boolean; upstream?: string; ahead: number; behind: number; gone: boolean; sha: string; subject: string; worktreePath?: string }
+export const BRANCH_FORMAT = ['%(HEAD)', '%(refname:short)', '%(upstream:short)', '%(upstream:track)', '%(objectname:short)', '%(contents:subject)', '%(worktreepath)'].join(SEP);
+
+export function parseTrack(track: string): { ahead: number; behind: number; gone: boolean } {
+  const a = /ahead (\d+)/.exec(track); const b = /behind (\d+)/.exec(track);
+  return { ahead: a ? +a[1] : 0, behind: b ? +b[1] : 0, gone: track.includes('gone') };
+}
+
+export function parseBranches(out: string): Branch[] {
+  return out.split('\n').filter(l => l.trim()).map(l => {
+    const [head, name, upstream, track, sha, subject, wt] = l.split(SEP);
+    return { name, current: head === '*', upstream: upstream || undefined, ...parseTrack(track || ''), sha, subject: subject ?? '', worktreePath: wt || undefined };
+  });
+}
+
+export interface Remote { name: string; fetchUrl: string; pushUrl?: string }
+export function parseRemotes(out: string): Remote[] {
+  const map = new Map<string, Remote>();
+  for (const l of out.split('\n')) {
+    const m = /^(\S+)\s+(\S+)\s+\((fetch|push)\)/.exec(l);
+    if (!m) continue;
+    const r = map.get(m[1]) ?? { name: m[1], fetchUrl: '' };
+    if (m[3] === 'fetch') r.fetchUrl = m[2]; else r.pushUrl = m[2];
+    map.set(m[1], r);
+  }
+  return [...map.values()];
+}
+
+/** Turn any GitHub remote URL into https://github.com/owner/repo */
+export function githubWebUrl(remoteUrl: string): string | undefined {
+  const m = /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(remoteUrl.trim());
+  return m ? `https://github.com/${m[1]}/${m[2]}` : undefined;
+}
+
+export function commitLineUrl(web: string, sha: string, path: string, start: number, end?: number): string {
+  const p = path.split('/').map(encodeURIComponent).join('/');
+  return `${web}/blob/${sha}/${p}#L${start}${end && end !== start ? `-L${end}` : ''}`;
+}
+
+export interface Stash { index: number; ref: string; sha: string; message: string; date: string }
+export const STASH_FORMAT = ['%gd', '%H', '%gs', '%cI'].join(SEP);
+export function parseStashes(out: string): Stash[] {
+  return out.split('\n').filter(l => l.trim()).map(l => {
+    const [ref, sha, message, date] = l.split(SEP);
+    const m = /\{(\d+)\}/.exec(ref);
+    return { index: m ? +m[1] : 0, ref, sha, message, date };
+  });
+}
+
+export interface Worktree { path: string; head?: string; branch?: string; bare: boolean; detached: boolean; locked: boolean; prunable: boolean; main: boolean }
+export function parseWorktrees(out: string): Worktree[] {
+  const res: Worktree[] = [];
+  for (const block of out.split(/\n\n+/)) {
+    if (!block.trim()) continue;
+    const wt: Worktree = { path: '', bare: false, detached: false, locked: false, prunable: false, main: res.length === 0 };
+    for (const line of block.split('\n')) {
+      const [k, ...rest] = line.split(' '); const v = rest.join(' ');
+      if (k === 'worktree') wt.path = v;
+      else if (k === 'HEAD') wt.head = v;
+      else if (k === 'branch') wt.branch = v.replace(/^refs\/heads\//, '');
+      else if (k === 'bare') wt.bare = true;
+      else if (k === 'detached') wt.detached = true;
+      else if (k === 'locked') wt.locked = true;
+      else if (k === 'prunable') wt.prunable = true;
+    }
+    res.push(wt);
+  }
+  return res;
+}
+
+export interface Commit { sha: string; short: string; author: string; email: string; date: string; subject: string; parents: string[] }
+export const LOG_FORMAT = ['%H', '%h', '%an', '%ae', '%aI', '%s', '%P'].join(SEP) + '\x1e';
+export function parseLog(out: string): Commit[] {
+  return out.split('\x1e').map(s => s.replace(/^\n+/, '')).filter(s => s.trim()).map(s => {
+    const [sha, short, author, email, date, subject, parents] = s.split(SEP);
+    return { sha, short, author, email, date, subject, parents: (parents ?? '').trim() ? parents.trim().split(' ') : [] };
+  });
+}
+
+export interface BlameLine { line: number; sha: string; author: string; authorTime: number; summary: string; filename: string; uncommitted: boolean }
+/** Parse `git blame --porcelain` (or --incremental-like porcelain) into one entry per final line. */
+export function parseBlamePorcelain(out: string): BlameLine[] {
+  const info = new Map<string, { author: string; authorTime: number; summary: string; filename: string }>();
+  const lines = out.split('\n'); const res: BlameLine[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const h = /^([0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/.exec(lines[i]);
+    if (!h) { i++; continue; }
+    const sha = h[1]; const finalLine = +h[3];
+    const meta = info.get(sha) ?? { author: '', authorTime: 0, summary: '', filename: '' };
+    i++;
+    while (i < lines.length && !lines[i].startsWith('\t')) {
+      const l = lines[i];
+      if (l.startsWith('author ')) meta.author = l.slice(7);
+      else if (l.startsWith('author-time ')) meta.authorTime = +l.slice(12);
+      else if (l.startsWith('summary ')) meta.summary = l.slice(8);
+      else if (l.startsWith('filename ')) meta.filename = l.slice(9);
+      i++;
+    }
+    info.set(sha, meta);
+    i++; // content line
+    res.push({ line: finalLine, sha, ...meta, uncommitted: /^0+$/.test(sha) });
+  }
+  return res.sort((a, b) => a.line - b.line);
+}
+
+export function relativeTime(fromSec: number, nowMs = Date.now()): string {
+  const s = Math.max(0, Math.round(nowMs / 1000 - fromSec));
+  const units: [number, string][] = [[31536000, 'year'], [2592000, 'month'], [604800, 'week'], [86400, 'day'], [3600, 'hour'], [60, 'minute']];
+  for (const [n, u] of units) if (s >= n) { const v = Math.floor(s / n); return `${v} ${u}${v > 1 ? 's' : ''} ago`; }
+  return 'just now';
+}
+
+export interface PullRequest { number: number; title: string; headRefName: string; baseRefName: string; url: string; isDraft: boolean; reviewDecision: string; author: string; checks: 'pass' | 'fail' | 'pending' | 'none'; mergeable: string }
+export const PR_FIELDS = 'number,title,headRefName,baseRefName,url,isDraft,reviewDecision,author,statusCheckRollup,mergeable';
+export function summarizeChecks(rollup: any[] | undefined): PullRequest['checks'] {
+  if (!rollup || rollup.length === 0) return 'none';
+  let pending = false;
+  for (const c of rollup) {
+    const v = String(c.conclusion ?? c.state ?? '').toUpperCase();
+    const st = String(c.status ?? '').toUpperCase();
+    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED'].includes(v)) return 'fail';
+    if (v === '' || v === 'PENDING' || v === 'EXPECTED' || (st && st !== 'COMPLETED')) pending = true;
+  }
+  return pending ? 'pending' : 'pass';
+}
+export function parsePrs(json: string): PullRequest[] {
+  const arr = JSON.parse(json || '[]') as any[];
+  return arr.map(p => ({ number: p.number, title: p.title, headRefName: p.headRefName, baseRefName: p.baseRefName, url: p.url, isDraft: !!p.isDraft,
+    reviewDecision: p.reviewDecision || '', author: p.author?.login ?? '', checks: summarizeChecks(p.statusCheckRollup), mergeable: p.mergeable ?? '' }));
+}
+export function prBadge(p: PullRequest): string {
+  const review = p.reviewDecision === 'APPROVED' ? 'approved' : p.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : p.reviewDecision === 'REVIEW_REQUIRED' ? 'review required' : '';
+  return [`#${p.number}`, p.isDraft ? 'draft' : '', `checks ${p.checks}`, review].filter(Boolean).join(' · ');
+}
+
+/** Build a PR title/body from commit subjects (oldest first). */
+export function prefillPr(branch: string, subjects: string[]): { title: string; body: string } {
+  if (subjects.length === 1) return { title: subjects[0], body: '' };
+  const title = branch.replace(/^[^/]+\//, '').replace(/[-_]/g, ' ').replace(/^./, c => c.toUpperCase());
+  return { title, body: subjects.map(s => `- ${s}`).join('\n') };
+}
+
+export interface TodoHit { file: string; line: number; tag: string; text: string }
+export const TODO_RE = /\b(TODO|FIXME)\b[:\s]?(.*)$/;
+/** Parse `git grep -n -I -E "\b(TODO|FIXME)\b"` output. */
+export function parseTodos(out: string): TodoHit[] {
+  const res: TodoHit[] = [];
+  for (const l of out.split('\n')) {
+    const m = /^(.+?):(\d+):(.*)$/.exec(l);
+    if (!m) continue;
+    const t = TODO_RE.exec(m[3]);
+    if (!t) continue;
+    res.push({ file: m[1], line: +m[2], tag: t[1], text: t[2].trim() });
+  }
+  return res;
+}
+export function groupByFile<T extends { file: string }>(items: T[]): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const it of items) { const a = m.get(it.file) ?? []; a.push(it); m.set(it.file, a); }
+  return m;
+}
+
+/** Default worktree folder: <repo>/worktrees/<branch-with-slashes-flattened> */
+export function defaultWorktreePath(repoRoot: string, branch: string): string {
+  return `${repoRoot.replace(/[\\/]+$/, '')}/worktrees/${branch.replace(/[\\/]/g, '-')}`;
+}
+
+export function parseNameList(out: string): string[] { return out.split('\n').map(s => s.trim()).filter(Boolean); }
+
+/** `git branch --merged main` output: strip markers, drop the base and current. */
+export function parseMergedBranches(out: string, base: string): string[] {
+  return out.split('\n').map(l => l.replace(/^[*+]?\s+/, '').trim()).filter(b => b && b !== base && !b.startsWith('('));
+}
+
+/** Simple name check matching git's main rules. */
+export function isValidRefName(n: string): boolean {
+  return !!n && !/[\s~^:?*\[\\]|\.\.|@\{|\/\/|^\/|\/$|\.lock$|^\.|\/\.|\.$/.test(n) && n !== '@';
+}
