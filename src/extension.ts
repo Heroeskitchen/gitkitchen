@@ -566,7 +566,7 @@ const statusItem = vscode.window.createStatusBarItem('gitKitchen.blame', vscode.
 statusItem.name = 'Git Kitchen Blame';
 let statusSha: string | undefined; let lastChanges: P.LineChanges | undefined; let lastSame: number[] = [];
 function setSameCommit(ed: vscode.TextEditor, lines: P.BlameLine[], line1: number) {
-  lastSame = vscode.workspace.getConfiguration('gitKitchen').get('blame.highlightSameCommit', true) ? P.sameCommitLines(lines, line1) : [];
+  lastSame = vscode.workspace.getConfiguration('gitKitchen').get('blame.highlightSameCommit', false) ? P.sameCommitLines(lines, line1) : [];
   ed.setDecorations(sameCommitDeco, lastSame.map(n => new vscode.Range(n - 1, 0, n - 1, 0)));
 }
 type AnnotMode = 'none' | 'blame' | 'heatmap' | 'changes';
@@ -995,7 +995,7 @@ const lensProvider: vscode.CodeLensProvider = {
     const cfg = vscode.workspace.getConfiguration('gitKitchen'); if (!cfg.get('codeLens.enabled', true)) return [];
     const b = await blameFor(doc); if (!b || !b.lines.length) return [];
     const ranges: vscode.Range[] = [new vscode.Range(0, 0, doc.lineCount - 1, 0)];
-    if (cfg.get('codeLens.symbols', true)) {
+    if (cfg.get('codeLens.symbols', false)) {
       const syms = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>('vscode.executeDocumentSymbolProvider', doc.uri).then(x => x ?? [], () => []);
       const want = new Set([vscode.SymbolKind.Function, vscode.SymbolKind.Class, vscode.SymbolKind.Method, vscode.SymbolKind.Interface, vscode.SymbolKind.Constructor]);
       const walk = (ss: any[], depth: number) => { for (const s of ss) { const range: vscode.Range = s.range ?? s.location?.range; if (want.has(s.kind) && range) ranges.push(range); if (s.children && depth < 2) walk(s.children, depth + 1); } };

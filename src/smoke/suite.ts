@@ -79,6 +79,7 @@ export async function run() {
     const s = t.status(); assert.match(s.text, /^\$\(git-commit\) Smoke, /); assert.strictEqual(s.command?.command, 'gitKitchen.openCommitDiff');
   });
   await check('same-commit lines highlighted for cursor and hover', async () => {
+    await vscode.workspace.getConfiguration('gitKitchen').update('blame.highlightSameCommit', true, vscode.ConfigurationTarget.Global);
     const ed = vscode.window.activeTextEditor!; ed.selection = new vscode.Selection(0, 0, 0, 0);
     await new Promise(r => setTimeout(r, 400)); await t.updateBlame(); await new Promise(r => setTimeout(r, 100));
     assert.deepStrictEqual(t.same(), [2]);
