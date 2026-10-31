@@ -34,6 +34,20 @@ async function webUrl(r: string, remote = 'origin'): Promise<string> {
 }
 function rel(r: string, file: string) { return path.relative(r, file).split(path.sep).join('/'); }
 
+/** Install a .vsix through the editor's own command line tool (used when the in-editor install is not available, as in Cursor). */
+async function installWithCli(vsix: string): Promise<void> {
+  const cp = await import('child_process');
+  const win = process.platform === 'win32';
+  const dirs = [path.join(vscode.env.appRoot, 'bin'), path.join(vscode.env.appRoot, '..', '..', 'bin')];
+  const names = ['cursor', 'code', 'code-insiders'].map(n => win ? n + '.cmd' : n);
+  const cli = dirs.flatMap(d => names.map(n => path.join(d, n))).find(f => fs.existsSync(f));
+  if (!cli) throw new Error('Could not find the editor command line tool to install the update.');
+  const done = (res: () => void, rej: (e: Error) => void) => (e: Error | null, _o: string, err: string) => e ? rej(new Error(`Install failed: ${err || e.message}`)) : res();
+  await new Promise<void>((res, rej) => win
+    ? cp.execFile(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${cli}" --install-extension "${vsix}" --force"`], { windowsVerbatimArguments: true }, done(res, rej))
+    : cp.execFile(cli, ['--install-extension', vsix, '--force'], done(res, rej)));
+}
+
 // ---------- content provider for file@ref ----------
 function refUri(r: string, ref: string, file: string): vscode.Uri {
   return vscode.Uri.from({ scheme: SCHEME, path: '/' + file, query: JSON.stringify({ r, ref, file }) });
@@ -410,7 +424,8 @@ function registerBranches() {
       const file = vscode.Uri.joinPath(ctx.globalStorageUri, asset.name);
       await vscode.workspace.fs.createDirectory(ctx.globalStorageUri);
       await vscode.workspace.fs.writeFile(file, new Uint8Array(await res.arrayBuffer()));
-      await vscode.commands.executeCommand('workbench.extensions.installExtension', file);
+      try { await vscode.commands.executeCommand('workbench.extensions.installExtension', file); }
+      catch { await installWithCli(file.fsPath); }
     });
     if ((await vscode.window.showInformationMessage(`Git Kitchen ${latest} is installed. Reload to use it.`, 'Reload Window')) === 'Reload Window')
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
