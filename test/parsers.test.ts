@@ -4,10 +4,10 @@ const S = p.SEP;
 
 describe('branches', () => {
   it('parses current, upstream and tracking', () => {
-    const out = [`*${S}main${S}origin/main${S}[ahead 2, behind 1]${S}abc1234${S}Fix it${S}/repo`, ` ${S}feat/x${S}${S}${S}def5678${S}Wip${S}`, ` ${S}old${S}origin/old${S}[gone]${S}0000000${S}Old${S}`].join('\n');
+    const out = [`*${S}main${S}origin/main${S}[ahead 2, behind 1]${S}abc1234${S}Fix it${S}/repo${S}1700000000`, ` ${S}feat/x${S}${S}${S}def5678${S}Wip${S}`, ` ${S}old${S}origin/old${S}[gone]${S}0000000${S}Old${S}`].join('\n');
     const b = p.parseBranches(out);
     expect(b).toHaveLength(3);
-    expect(b[0]).toMatchObject({ name: 'main', current: true, upstream: 'origin/main', ahead: 2, behind: 1, worktreePath: '/repo' });
+    expect(b[0]).toMatchObject({ name: 'main', current: true, upstream: 'origin/main', ahead: 2, behind: 1, worktreePath: '/repo', time: 1700000000 });
     expect(b[1]).toMatchObject({ name: 'feat/x', current: false, upstream: undefined, ahead: 0 });
     expect(b[2].gone).toBe(true);
   });
@@ -109,5 +109,59 @@ describe('merged + refnames', () => {
   it('validates names', () => {
     expect(p.isValidRefName('feat/x')).toBe(true);
     for (const n of ['a b', 'a..b', 'x.lock', '/a', 'a/', '@', '']) expect(p.isValidRefName(n)).toBe(false);
+  });
+});
+
+describe('groupByPrefix', () => {
+  it('nests folders before leaves', () => {
+    const t = p.groupByPrefix(['main', 'feat/b', 'feat/a', 'fix/x/y', 'claude/z'], s => s);
+    expect(t.map(e => `${e.kind}:${e.name}`)).toEqual(['folder:claude', 'folder:feat', 'folder:fix', 'leaf:main']);
+    const feat = t[1] as p.TreeFolder<string>; expect(feat.children.map(c => c.name)).toEqual(['a', 'b']);
+    const fix = t[2] as p.TreeFolder<string>; expect(fix.children[0]).toMatchObject({ kind: 'folder', path: 'fix/x' });
+  });
+});
+
+describe('heatBucket', () => {
+  it('maps newest to 0 and oldest to last', () => {
+    expect(p.heatBucket(100, 100, 0)).toBe(0);
+    expect(p.heatBucket(0, 100, 0)).toBe(9);
+    expect(p.heatBucket(50, 50, 50)).toBe(0);
+    const mid = p.heatBucket(90, 100, 0); expect(mid).toBeGreaterThan(0); expect(mid).toBeLessThan(9);
+  });
+});
+
+describe('stepRevision', () => {
+  const h = ['c3', 'c2', 'c1'];
+  it('steps back and forward', () => {
+    expect(p.stepRevision(h, undefined, 'prev')).toBe('c3');
+    expect(p.stepRevision(h, undefined, 'next')).toBeUndefined();
+    expect(p.stepRevision(h, 'c3', 'prev')).toBe('c2');
+    expect(p.stepRevision(h, 'c1', 'prev')).toBeUndefined();
+    expect(p.stepRevision(h, 'c2', 'next')).toBe('c3');
+    expect(p.stepRevision(h, 'c3', 'next')).toBe('working');
+    expect(p.stepRevision([], 'x', 'prev')).toBeUndefined();
+  });
+});
+
+describe('changedLines', () => {
+  it('reads -U0 hunks', () => {
+    const r = p.changedLines('@@ -1,0 +2,2 @@\n+a\n+b\n@@ -10 +12 @@\n-x\n+y\n@@ -20,3 +21,0 @@\n');
+    expect(r.added).toEqual([2, 3, 12]); expect(r.deletedAfter).toEqual([21]);
+  });
+});
+
+describe('lensSummary', () => {
+  const mk = (line: number, author: string, t: number, unc = false): p.BlameLine => ({ line, sha: (unc ? '0' : author[0]).repeat(40), author, authorTime: t, summary: 's', filename: 'f', uncommitted: unc });
+  const now = 1_000_000_000_000; const ts = now / 1000;
+  it('picks latest author and counts authors', () => {
+    const L = [mk(1, 'Ann', ts - 86400 * 2), mk(2, 'Bob', ts - 3600), mk(3, 'Ann', ts - 86400), mk(4, 'You', ts, true)];
+    const r = p.lensSummary(L, 1, 4, now)!;
+    expect(r.label).toBe('Bob, 1 hour ago'); expect(r.authorsLabel).toBe('2 authors (Ann, Bob)');
+    expect(p.lensSummary(L, 1, 1, now)!.authorsLabel).toBe('1 author (Ann)');
+    expect(p.lensSummary(L, 4, 4, now)).toBeUndefined();
+  });
+  it('caps the names', () => {
+    const L = ['A', 'B', 'C', 'D', 'E'].map((a, i) => mk(i + 1, a, ts - i));
+    expect(p.lensSummary(L, 1, 5, now)!.authorsLabel).toBe('5 authors (A, B, C, +2)');
   });
 });

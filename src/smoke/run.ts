@@ -12,7 +12,7 @@ async function main() {
   g('add', '.'); g('commit', '-qm', 'First commit');
   fs.appendFileSync(path.join(repo, 'a.ts'), 'const b = 2; // FIXME later\n');
   g('commit', '-qam', 'Second commit');
-  g('branch', 'feature/one'); g('branch', 'merged-one');
+  g('branch', 'feature/one'); g('branch', 'merged-one'); g('branch', 'feature/two');
   fs.appendFileSync(path.join(repo, 'a.ts'), 'const c = 3;\n'); g('stash', 'push', '-m', 'wip stash');
   g('worktree', 'add', '-q', path.join(repo, 'worktrees', 'feature-one'), 'feature/one');
   await runTests({

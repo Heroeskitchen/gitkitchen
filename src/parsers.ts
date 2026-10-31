@@ -2,8 +2,8 @@
 
 export const SEP = '\x1f';
 
-export interface Branch { name: string; current: boolean; upstream?: string; ahead: number; behind: number; gone: boolean; sha: string; subject: string; worktreePath?: string }
-export const BRANCH_FORMAT = ['%(HEAD)', '%(refname:short)', '%(upstream:short)', '%(upstream:track)', '%(objectname:short)', '%(contents:subject)', '%(worktreepath)'].join(SEP);
+export interface Branch { name: string; current: boolean; upstream?: string; ahead: number; behind: number; gone: boolean; sha: string; subject: string; worktreePath?: string; time: number }
+export const BRANCH_FORMAT = ['%(HEAD)', '%(refname:short)', '%(upstream:short)', '%(upstream:track)', '%(objectname:short)', '%(contents:subject)', '%(worktreepath)', '%(committerdate:unix)'].join(SEP);
 
 export function parseTrack(track: string): { ahead: number; behind: number; gone: boolean } {
   const a = /ahead (\d+)/.exec(track); const b = /behind (\d+)/.exec(track);
@@ -12,8 +12,8 @@ export function parseTrack(track: string): { ahead: number; behind: number; gone
 
 export function parseBranches(out: string): Branch[] {
   return out.split('\n').filter(l => l.trim()).map(l => {
-    const [head, name, upstream, track, sha, subject, wt] = l.split(SEP);
-    return { name, current: head === '*', upstream: upstream || undefined, ...parseTrack(track || ''), sha, subject: subject ?? '', worktreePath: wt || undefined };
+    const [head, name, upstream, track, sha, subject, wt, time] = l.split(SEP);
+    return { name, current: head === '*', upstream: upstream || undefined, ...parseTrack(track || ''), sha, subject: subject ?? '', worktreePath: wt || undefined, time: +(time || 0) };
   });
 }
 
@@ -180,4 +180,68 @@ export function parseMergedBranches(out: string, base: string): string[] {
 /** Simple name check matching git's main rules. */
 export function isValidRefName(n: string): boolean {
   return !!n && !/[\s~^:?*\[\\]|\.\.|@\{|\/\/|^\/|\/$|\.lock$|^\.|\/\.|\.$/.test(n) && n !== '@';
+}
+
+export interface TreeFolder<T> { kind: 'folder'; name: string; path: string; children: TreeEntry<T>[] }
+export interface TreeLeaf<T> { kind: 'leaf'; name: string; item: T }
+export type TreeEntry<T> = TreeFolder<T> | TreeLeaf<T>;
+/** Group names like `feat/a/b` into nested folders. Folders sort before leaves, each alphabetically. */
+export function groupByPrefix<T>(items: T[], nameOf: (t: T) => string): TreeEntry<T>[] {
+  const root: TreeFolder<T> = { kind: 'folder', name: '', path: '', children: [] };
+  for (const it of items) {
+    const parts = nameOf(it).split('/'); let cur = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const p = parts.slice(0, i + 1).join('/');
+      let f = cur.children.find((c): c is TreeFolder<T> => c.kind === 'folder' && c.path === p);
+      if (!f) { f = { kind: 'folder', name: parts[i], path: p, children: [] }; cur.children.push(f); }
+      cur = f;
+    }
+    cur.children.push({ kind: 'leaf', name: parts[parts.length - 1], item: it });
+  }
+  const sort = (es: TreeEntry<T>[]) => { es.sort((a, b) => a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name)); es.forEach(e => e.kind === 'folder' && sort(e.children)); return es; };
+  return sort(root.children);
+}
+
+/** Heatmap bucket 0 (newest) .. buckets-1 (oldest), on a log scale between the file's newest and oldest line. */
+export function heatBucket(time: number, newest: number, oldest: number, buckets = 10): number {
+  if (newest <= oldest) return 0;
+  const span = Math.log1p(newest - oldest); const age = Math.log1p(Math.max(0, newest - time));
+  return Math.min(buckets - 1, Math.max(0, Math.floor((age / span) * buckets)));
+}
+
+/**
+ * Step through a file's history (newest first). `current` is the sha shown on the right of the diff,
+ * or undefined for the working copy. Returns the new right-hand sha, 'working' or undefined if at the end.
+ */
+export function stepRevision(history: string[], current: string | undefined, dir: 'prev' | 'next'): string | 'working' | undefined {
+  if (!history.length) return undefined;
+  if (current === undefined) return dir === 'prev' ? history[0] : undefined;
+  const i = history.indexOf(current); if (i < 0) return undefined;
+  if (dir === 'prev') return history[i + 1];
+  return i === 0 ? 'working' : history[i - 1];
+}
+
+/** Parse `git diff -U0` hunk headers into changed (added/modified) line numbers of the new side, 1-based. */
+export function changedLines(diff: string): { added: number[]; deletedAfter: number[] } {
+  const added: number[] = []; const deletedAfter: number[] = [];
+  for (const l of diff.split('\n')) {
+    const m = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l); if (!m) continue;
+    const start = +m[2]; const count = m[3] === undefined ? 1 : +m[3];
+    if (count === 0) deletedAfter.push(start); else for (let i = 0; i < count; i++) added.push(start + i);
+  }
+  return { added, deletedAfter };
+}
+
+export interface LensSummary { latest: BlameLine; authors: string[]; label: string; authorsLabel: string }
+/** Summarize blame for a line range (1-based, inclusive) into a code lens label. Uncommitted lines are skipped. */
+export function lensSummary(lines: BlameLine[], start: number, end: number, nowMs = Date.now()): LensSummary | undefined {
+  const inRange = lines.filter(l => l.line >= start && l.line <= end && !l.uncommitted);
+  if (!inRange.length) return undefined;
+  const latest = inRange.reduce((a, b) => (b.authorTime > a.authorTime ? b : a));
+  const counts = new Map<string, number>();
+  for (const l of inRange) counts.set(l.author, (counts.get(l.author) ?? 0) + 1);
+  const authors = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([a]) => a);
+  const shown = authors.slice(0, 3).join(', ') + (authors.length > 3 ? `, +${authors.length - 3}` : '');
+  return { latest, authors, label: `${latest.author}, ${relativeTime(latest.authorTime, nowMs)}`,
+    authorsLabel: `${authors.length} ${authors.length === 1 ? 'author' : 'authors'} (${shown})` };
 }

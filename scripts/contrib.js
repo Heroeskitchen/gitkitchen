@@ -1,11 +1,11 @@
 const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('package.json'));
-const C = []; const menus = { 'view/title': [], 'view/item/context': [], 'editor/title': [], 'editor/context': [], 'explorer/context': [], commandPalette: [] };
+const C = []; const menus = { 'view/title': [], 'view/item/context': [], 'editor/title': [], 'gitKitchen.annotations': [], 'editor/context': [], 'explorer/context': [], commandPalette: [] };
 function c(id, title, ic, opt = {}) { C.push({ command: id, title, category: 'Git Kitchen', ...(ic ? { icon: `$(${ic})` } : {}) }); if (opt.hidePalette) menus.commandPalette.push({ command: id, when: 'false' }); }
 function item(id, when, group) { menus['view/item/context'].push({ command: id, when, group }); }
 function title(id, view, group = 'navigation') { menus['view/title'].push({ command: id, when: `view == ${view}`, group }); }
 const V = v => `view == gitKitchen.${v}`;
 c('gitKitchen.refresh', 'Refresh', 'refresh');
-for (const v of ['branches', 'remotes', 'stashes', 'worktrees', 'prs', 'dual', 'merged', 'todos', 'history']) title('gitKitchen.refresh', `gitKitchen.${v}`, 'navigation@9');
+for (const v of ['commits', 'branches', 'remotes', 'stashes', 'worktrees', 'prs', 'dual', 'merged', 'todos', 'history']) title('gitKitchen.refresh', `gitKitchen.${v}`, 'navigation@9');
 // Branches
 const B = `${V('branches')} && viewItem =~ /^branch/`, NC = `${B} && viewItem =~ /^branch(?!\\.current)/`;
 const br = [
@@ -60,9 +60,22 @@ c('gitKitchen.blame.toggleLine', 'Toggle Line Blame');
 c('gitKitchen.blame.openLineCommit', 'Open Changes for Current Line');
 c('gitKitchen.copyCommitLink', 'Copy Commit Link with Line');
 c('gitKitchen.fileHistory', 'File History', 'history');
-menus['editor/title'].push({ command: 'gitKitchen.fileHistory', when: 'resourceScheme == file', group: 'navigation@90' }, { command: 'gitKitchen.blame.toggleFile', when: 'resourceScheme == file', group: 'navigation@91' });
+menus['editor/title'].push({ command: 'gitKitchen.fileHistory', when: 'resourceScheme == file', group: 'navigation@90' });
 menus['editor/context'].push({ command: 'gitKitchen.copyCommitLink', when: 'resourceScheme == file', group: '9_gitkitchen@1' }, { command: 'gitKitchen.blame.openLineCommit', when: 'resourceScheme == file', group: '9_gitkitchen@2' }, { command: 'gitKitchen.fileHistory', when: 'resourceScheme == file', group: '9_gitkitchen@3' });
 menus['explorer/context'].push({ command: 'gitKitchen.fileHistory', when: '!explorerResourceIsFolder', group: '9_gitkitchen@1' });
+// Commits view
+c('gitKitchen.commits.loadMore', 'Load More Commits', null, { hidePalette: true });
+c('gitKitchen.diffFile', 'Open Changes', null, { hidePalette: true });
+// Revision navigation
+c('gitKitchen.rev.prev', 'Open Previous Revision', 'arrow-left'); c('gitKitchen.rev.next', 'Open Next Revision', 'arrow-right'); c('gitKitchen.rev.choose', 'Choose Revision…', 'versions');
+menus['editor/title'].push({ command: 'gitKitchen.rev.prev', when: 'resourceScheme == file || resourceScheme == gitkitchen', group: 'navigation@80' },
+  { command: 'gitKitchen.rev.choose', when: 'resourceScheme == file || resourceScheme == gitkitchen', group: 'navigation@81' },
+  { command: 'gitKitchen.rev.next', when: 'resourceScheme == gitkitchen || isInDiffEditor && resourceScheme == file', group: 'navigation@82' });
+// Annotations submenu
+c('gitKitchen.annotations.heatmap', 'Toggle File Heatmap'); c('gitKitchen.annotations.changes', 'Toggle File Changes…'); c('gitKitchen.annotations.settings', 'Open Annotation Settings');
+c('gitKitchen.lens.blame', 'Show File Blame', null, { hidePalette: true });
+menus['gitKitchen.annotations'].push({ command: 'gitKitchen.blame.toggleFile', group: '1@1' }, { command: 'gitKitchen.annotations.heatmap', group: '1@2' }, { command: 'gitKitchen.annotations.changes', group: '1@3' }, { command: 'gitKitchen.annotations.settings', group: '2@1' });
+menus['editor/title'].push({ submenu: 'gitKitchen.annotations', when: 'resourceScheme == file', group: 'navigation@91' });
 // Dual + merged
 c('gitKitchen.dual.chooseRemote', 'Choose Remotes to Compare…', 'settings-gear'); title('gitKitchen.dual.chooseRemote', 'gitKitchen.dual', 'navigation@1');
 c('gitKitchen.dual.fetch', 'Fetch All Remotes', 'sync'); title('gitKitchen.dual.fetch', 'gitKitchen.dual', 'navigation@2');
@@ -77,13 +90,20 @@ menus['explorer/context'].push({ command: 'gitKitchen.explorer.reopenHere', when
   { command: 'gitKitchen.explorer.clearDefaultWorkspace', when: 'resourceExtname == .code-workspace && resource in gitKitchen.defaultWorkspaceFiles', group: '0_open@3' });
 pkg.contributes = {
   commands: C, menus,
+  submenus: [{ id: 'gitKitchen.annotations', label: 'File Annotations', icon: '$(eye)' }],
+  colors: [{ id: 'gitKitchen.currentLineBackground', description: 'Background of the current line while line blame is shown.', defaults: { dark: '#ffffff0b', light: '#0000000a', highContrast: null, highContrastLight: null } }],
   views: { scm: [
-    { id: 'gitKitchen.branches', name: 'Branches' }, { id: 'gitKitchen.remotes', name: 'Remotes' }, { id: 'gitKitchen.stashes', name: 'Stashes' }, { id: 'gitKitchen.worktrees', name: 'Worktrees' },
+    { id: 'gitKitchen.commits', name: 'Commits' }, { id: 'gitKitchen.branches', name: 'Branches' }, { id: 'gitKitchen.remotes', name: 'Remotes' }, { id: 'gitKitchen.stashes', name: 'Stashes' }, { id: 'gitKitchen.worktrees', name: 'Worktrees' },
     { id: 'gitKitchen.prs', name: 'Pull Requests' }, { id: 'gitKitchen.history', name: 'File History' }, { id: 'gitKitchen.dual', name: 'Not on Client Remote', visibility: 'collapsed' },
     { id: 'gitKitchen.merged', name: 'Merged Branches', visibility: 'collapsed' }, { id: 'gitKitchen.todos', name: 'TODOs', visibility: 'collapsed' } ] },
   keybindings: [{ command: 'gitKitchen.fileHistory', key: 'alt+h', when: 'editorTextFocus || resourceScheme == file' }],
   configuration: { title: 'Git Kitchen', properties: {
     'gitKitchen.blame.currentLine': { type: 'boolean', default: true, description: 'Show blame at the end of the current line.' },
+    'gitKitchen.blame.highlightLine': { type: 'boolean', default: true, description: 'Highlight the whole current line while line blame is shown.' },
+    'gitKitchen.branches.layout': { type: 'string', enum: ['tree', 'list'], default: 'tree', description: 'Show branches grouped into folders by their / prefix, or as a flat list.' },
+    'gitKitchen.heatmap.location': { type: 'string', enum: ['gutter', 'background'], default: 'gutter', description: 'Where the file heatmap is drawn.' },
+    'gitKitchen.codeLens.enabled': { type: 'boolean', default: true, description: 'Show the last author and author count above the file and its functions and classes.' },
+    'gitKitchen.codeLens.symbols': { type: 'boolean', default: true, description: 'Also show the code lens above functions and classes, not only at the top of the file.' },
     'gitKitchen.blame.hover': { type: 'boolean', default: true, description: 'Show commit details on hover.' },
     'gitKitchen.mainBranch': { type: 'string', default: 'main', description: 'Main branch used for merged cleanup, PR base and the client remote view.' },
     'gitKitchen.dualRemote.source': { type: 'string', default: 'origin', description: 'Our remote.' },
