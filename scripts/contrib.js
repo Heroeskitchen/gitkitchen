@@ -25,7 +25,9 @@ item('gitKitchen.branch.pull', `${CUR} && viewItem =~ /tracked/`, 'inline@1'); i
 item('gitKitchen.branch.switch', NC, 'inline@1'); item('gitKitchen.branch.compareHead', NC, 'inline@2');
 title('gitKitchen.branch.create', 'gitKitchen.branches', 'navigation@1');
 // Worktree from branch
-c('gitKitchen.worktree.create', 'Create Worktree…', null, { hidePalette: true }); item('gitKitchen.worktree.create', `${B} && viewItem =~ /noWorktree/ && viewItem =~ /^branch(?!\\.current)/`, '6_wt@1');
+c('gitKitchen.worktree.create', 'Create Worktree for This Branch…', null, { hidePalette: true });
+c('gitKitchen.worktree.openForBranch', 'Open Worktree', null, { hidePalette: true }); item('gitKitchen.worktree.openForBranch', `${B} && viewItem =~ /\\.worktree\\b/ && viewItem =~ /^branch(?!\\.current)/`, '6_wt@1');
+c('gitKitchen.worktree.createFromRemote', 'Create Worktree for This Branch…', null, { hidePalette: true }); item('gitKitchen.worktree.createFromRemote', `view == gitKitchen.remotes && viewItem == remoteBranch`, '6_wt@1'); item('gitKitchen.worktree.create', `${B} && viewItem =~ /noWorktree/ && viewItem =~ /^branch(?!\\.current)/`, '6_wt@1');
 c('gitKitchen.worktree.createNewBranch', 'Create Worktree from New Branch…', 'add'); item('gitKitchen.worktree.createNewBranch', B, '6_wt@2'); title('gitKitchen.worktree.createNewBranch', 'gitKitchen.worktrees', 'navigation@1');
 const WT = `(${V('worktrees')} && viewItem =~ /^worktree/) || (${B} && viewItem =~ /\\.worktree/)`;
 const WTX = `${V('worktrees')} && viewItem =~ /^worktree(?!\\.main)/`;
@@ -48,8 +50,9 @@ c('gitKitchen.remoteBranch.compareHead', 'Compare with HEAD', null, { hidePalett
 // Stashes
 c('gitKitchen.stash.save', 'Stash Changes…', 'git-stash'); title('gitKitchen.stash.save', 'gitKitchen.stashes', 'navigation@1');
 c('gitKitchen.stash.stashAndSwitch', 'Stash and Switch…', null); title('gitKitchen.stash.stashAndSwitch', 'gitKitchen.stashes', '1_stash@1'); item('gitKitchen.stash.stashAndSwitch', NC, '1_a@1.5');
-for (const [id, t, ic, g] of [['apply', 'Apply Stash', 'git-stash-apply', '1@1'], ['pop', 'Pop Stash', null, '1@2'], ['drop', 'Drop Stash…', null, '9_danger@1']]) { c(`gitKitchen.stash.${id}`, t, ic, { hidePalette: true }); item(`gitKitchen.stash.${id}`, `${V('stashes')} && viewItem == stash`, g); }
+for (const [id, t, ic, g] of [['apply', 'Apply Stash', 'git-stash-apply', '1@1'], ['pop', 'Pop Stash', null, '1@2'], ['drop', 'Delete Stash…', 'trash', '9_danger@1']]) { c(`gitKitchen.stash.${id}`, t, ic, { hidePalette: true }); item(`gitKitchen.stash.${id}`, `${V('stashes')} && viewItem == stash`, g); }
 item('gitKitchen.stash.apply', `${V('stashes')} && viewItem == stash`, 'inline@1');
+item('gitKitchen.stash.drop', `${V('stashes')} && viewItem == stash`, 'inline@2');
 c('gitKitchen.stash.openFile', 'Open Changes', null, { hidePalette: true }); c('gitKitchen.stash.compareWorking', 'Compare with Working File', null, { hidePalette: true }); item('gitKitchen.stash.compareWorking', `${V('stashes')} && viewItem == stashFile`, '1@1');
 // Commits (history, PR commits, dual)
 const CM = `viewItem == commit || viewItem == historyCommit`;
@@ -129,6 +132,7 @@ pkg.contributes = {
     'gitKitchen.staleness.staleDays': { type: 'number', default: 60, minimum: 0, description: 'A branch whose last commit is more than this many days old is shown as stale.' },
     'gitKitchen.staleness.behindCount': { type: 'number', default: 20, minimum: 0, description: 'A branch more than this many commits behind its upstream (or the main branch when it has none) is shown as stale. Any commits behind marks it as aging.' },
     'gitKitchen.files.layout': { type: 'string', enum: ['tree', 'list'], default: 'tree', description: 'Show a commit\'s changed files as a folder tree (compacting single-folder chains) or as a flat list.' },
+    'gitKitchen.sortBy': { type: 'string', enum: ['date', 'name'], default: 'date', enumDescriptions: ['Newest first; branch folders by their newest branch', 'Alphabetical'], description: 'Order of rows in Branches, Remotes, Worktrees and Pull Requests. The current branch, its remote, the current worktree and the current branch\'s pull request always stay on top. Stashes, Commits and Compare Remotes are always newest first.' },
     'gitKitchen.branches.layout': { type: 'string', enum: ['tree', 'list'], default: 'tree', description: 'Show branches grouped into folders by their / prefix, or as a flat list.' },
     'gitKitchen.heatmap.location': { type: 'string', enum: ['gutter', 'background'], default: 'gutter', description: 'Where the file heatmap is drawn.' },
     'gitKitchen.codeLens.enabled': { type: 'boolean', default: true, description: 'Show the last author and author count above the file and its functions and classes.' },

@@ -115,8 +115,8 @@ export function relativeTime(fromSec: number, nowMs = Date.now()): string {
   return 'just now';
 }
 
-export interface PullRequest { number: number; title: string; headRefName: string; baseRefName: string; url: string; isDraft: boolean; reviewDecision: string; author: string; checks: 'pass' | 'fail' | 'pending' | 'none'; mergeable: string }
-export const PR_FIELDS = 'number,title,headRefName,baseRefName,url,isDraft,reviewDecision,author,statusCheckRollup,mergeable';
+export interface PullRequest { number: number; title: string; headRefName: string; baseRefName: string; url: string; isDraft: boolean; reviewDecision: string; author: string; checks: 'pass' | 'fail' | 'pending' | 'none'; mergeable: string; updatedAt?: string }
+export const PR_FIELDS = 'number,title,headRefName,baseRefName,url,isDraft,reviewDecision,author,statusCheckRollup,mergeable,updatedAt';
 export function summarizeChecks(rollup: any[] | undefined): PullRequest['checks'] {
   if (!rollup || rollup.length === 0) return 'none';
   let pending = false;
@@ -131,7 +131,7 @@ export function summarizeChecks(rollup: any[] | undefined): PullRequest['checks'
 export function parsePrs(json: string): PullRequest[] {
   const arr = JSON.parse(json || '[]') as any[];
   return arr.map(p => ({ number: p.number, title: p.title, headRefName: p.headRefName, baseRefName: p.baseRefName, url: p.url, isDraft: !!p.isDraft,
-    reviewDecision: p.reviewDecision || '', author: p.author?.login ?? '', checks: summarizeChecks(p.statusCheckRollup), mergeable: p.mergeable ?? '' }));
+    reviewDecision: p.reviewDecision || '', author: p.author?.login ?? '', checks: summarizeChecks(p.statusCheckRollup), mergeable: p.mergeable ?? '', updatedAt: p.updatedAt }));
 }
 export function prBadge(p: PullRequest): string {
   const review = p.reviewDecision === 'APPROVED' ? 'approved' : p.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : p.reviewDecision === 'REVIEW_REQUIRED' ? 'review required' : '';
@@ -185,8 +185,11 @@ export function isValidRefName(n: string): boolean {
 export interface TreeFolder<T> { kind: 'folder'; name: string; path: string; children: TreeEntry<T>[] }
 export interface TreeLeaf<T> { kind: 'leaf'; name: string; item: T }
 export type TreeEntry<T> = TreeFolder<T> | TreeLeaf<T>;
-/** Group names like `feat/a/b` into nested folders. Folders sort before leaves, each alphabetically. */
-export function groupByPrefix<T>(items: T[], nameOf: (t: T) => string): TreeEntry<T>[] {
+/**
+ * Group names like `feat/a/b` into nested folders. Without `timeOf`, folders sort before leaves, each alphabetically.
+ * With `timeOf`, entries sort newest first and a folder sorts by its newest descendant.
+ */
+export function groupByPrefix<T>(items: T[], nameOf: (t: T) => string, timeOf?: (t: T) => number): TreeEntry<T>[] {
   const root: TreeFolder<T> = { kind: 'folder', name: '', path: '', children: [] };
   for (const it of items) {
     const parts = nameOf(it).split('/'); let cur = root;
@@ -198,8 +201,20 @@ export function groupByPrefix<T>(items: T[], nameOf: (t: T) => string): TreeEntr
     }
     cur.children.push({ kind: 'leaf', name: parts[parts.length - 1], item: it });
   }
+  if (timeOf) {
+    const newest = new Map<TreeEntry<T>, number>();
+    const t = (e: TreeEntry<T>): number => { let v = newest.get(e); if (v === undefined) { v = e.kind === 'leaf' ? timeOf(e.item) || 0 : Math.max(0, ...e.children.map(t)); newest.set(e, v); } return v; };
+    const byDate = (es: TreeEntry<T>[]): TreeEntry<T>[] => { es.sort((a, b) => t(b) - t(a) || a.name.localeCompare(b.name)); es.forEach(e => e.kind === 'folder' && byDate(e.children)); return es; };
+    return byDate(root.children);
+  }
   const sort = (es: TreeEntry<T>[]) => { es.sort((a, b) => a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name)); es.forEach(e => e.kind === 'folder' && sort(e.children)); return es; };
   return sort(root.children);
+}
+export type SortBy = 'date' | 'name';
+/** Order rows for any view: the current item first, then the rest by date (newest first) or by name. */
+export function pinSort<T>(items: T[], o: { current: (t: T) => boolean; name: (t: T) => string; time: (t: T) => number; by: SortBy }): T[] {
+  const cmp = o.by === 'name' ? (a: T, b: T) => o.name(a).localeCompare(o.name(b)) : (a: T, b: T) => o.time(b) - o.time(a) || o.name(a).localeCompare(o.name(b));
+  return [...items.filter(o.current), ...items.filter(x => !o.current(x)).sort(cmp)];
 }
 
 /** Heatmap bucket 0 (newest) .. buckets-1 (oldest), on a log scale between the file's newest and oldest line. */
@@ -419,3 +434,4 @@ export function commitCardMarkdown(d: CommitDetails, o: { nowMs?: number; web?: 
   const branches = (o.remoteBranches ?? []).map(b => `\`${b}\``).join(' ');
   return `${who}, ${rel} (${date}) · ${shaPart} · ${files} · ${lines}\n\n${msg}${branches ? `\n\n$(cloud) ${branches}` : ''}`;
 }
+export const sortBranches = pinSort;

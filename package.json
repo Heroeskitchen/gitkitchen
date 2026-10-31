@@ -149,7 +149,17 @@
       },
       {
         "command": "gitKitchen.worktree.create",
-        "title": "Create Worktree…",
+        "title": "Create Worktree for This Branch…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.openForBranch",
+        "title": "Open Worktree",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.createFromRemote",
+        "title": "Create Worktree for This Branch…",
         "category": "Git Kitchen"
       },
       {
@@ -291,8 +301,9 @@
       },
       {
         "command": "gitKitchen.stash.drop",
-        "title": "Drop Stash…",
-        "category": "Git Kitchen"
+        "title": "Delete Stash…",
+        "category": "Git Kitchen",
+        "icon": "$(trash)"
       },
       {
         "command": "gitKitchen.stash.openFile",
@@ -704,6 +715,16 @@
           "group": "inline@2"
         },
         {
+          "command": "gitKitchen.worktree.openForBranch",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.worktree\\b/ && viewItem =~ /^branch(?!\\.current)/",
+          "group": "6_wt@1"
+        },
+        {
+          "command": "gitKitchen.worktree.createFromRemote",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "6_wt@1"
+        },
+        {
           "command": "gitKitchen.worktree.create",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /noWorktree/ && viewItem =~ /^branch(?!\\.current)/",
           "group": "6_wt@1"
@@ -867,6 +888,11 @@
           "command": "gitKitchen.stash.apply",
           "when": "view == gitKitchen.stashes && viewItem == stash",
           "group": "inline@1"
+        },
+        {
+          "command": "gitKitchen.stash.drop",
+          "when": "view == gitKitchen.stashes && viewItem == stash",
+          "group": "inline@2"
         },
         {
           "command": "gitKitchen.stash.compareWorking",
@@ -1103,6 +1129,14 @@
         },
         {
           "command": "gitKitchen.worktree.create",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.openForBranch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.createFromRemote",
           "when": "false"
         },
         {
@@ -1475,6 +1509,19 @@
           ],
           "default": "tree",
           "description": "Show a commit's changed files as a folder tree (compacting single-folder chains) or as a flat list."
+        },
+        "gitKitchen.sortBy": {
+          "type": "string",
+          "enum": [
+            "date",
+            "name"
+          ],
+          "default": "date",
+          "enumDescriptions": [
+            "Newest first; branch folders by their newest branch",
+            "Alphabetical"
+          ],
+          "description": "Order of rows in Branches, Remotes, Worktrees and Pull Requests. The current branch, its remote, the current worktree and the current branch's pull request always stay on top. Stashes, Commits and Compare Remotes are always newest first."
         },
         "gitKitchen.branches.layout": {
           "type": "string",

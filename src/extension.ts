@@ -239,14 +239,17 @@ async function branchPrs(r: string): Promise<P.BranchPrInfo[]> {
 }
 function treeLayout(): boolean { return vscode.workspace.getConfiguration('gitKitchen').get<string>('branches.layout', 'tree') === 'tree'; }
 /** Turn grouped entries into folder nodes (or a flat list) using `leaf` to build each item node. */
-function layoutNodes<T>(items: T[], nameOf: (t: T) => string, leaf: (t: T, label: string) => Node, folderKind: string): Node[] {
-  if (!treeLayout()) return items.map(i => leaf(i, nameOf(i)));
+function sortBy(): P.SortBy { return vscode.workspace.getConfiguration('gitKitchen').get<string>('sortBy', 'date') === 'name' ? 'name' : 'date'; }
+function sortByDate(): boolean { return sortBy() === 'date'; }
+function layoutNodes<T>(items: T[], nameOf: (t: T) => string, leaf: (t: T, label: string) => Node, folderKind: string, timeOf?: (t: T) => number): Node[] {
+  const byDate = sortByDate() && timeOf;
+  if (!treeLayout()) return P.sortBranches(items, { current: () => false, name: nameOf, time: timeOf ?? (() => 0), by: byDate ? 'date' : 'name' }).map(i => leaf(i, nameOf(i)));
   const build = (es: P.TreeEntry<T>[]): Node[] => es.map(e => {
     if (e.kind === 'leaf') return leaf(e.item, e.name);
     const f = new Node(e.name, folderKind, { children: build(e.children) }, vscode.TreeItemCollapsibleState.Expanded);
     f.iconPath = icon('folder'); f.id = `${folderKind}:${e.path}`; return f;
   });
-  return build(P.groupByPrefix(items, nameOf));
+  return build(P.groupByPrefix(items, nameOf, byDate ? timeOf : undefined));
 }
 async function loadBranches(n?: Node): Promise<Node[]> {
   if (n?.data?.branch) return refCommits(n.data.root, `refs/heads/${n.data.branch.name}`, `b:${n.data.branch.name}`);
@@ -266,7 +269,7 @@ async function loadBranches(n?: Node): Promise<Node[]> {
     fresh.set(b.name, P.freshness(behind, b.time, Date.now(), opts));
   }));
   const current = bs.filter(b => b.current);
-  const rest = layoutNodes(bs.filter(b => !b.current), b => b.name, (b, label) => branchNode(r, b, prs, label), 'branchFolder');
+  const rest = layoutNodes(bs.filter(b => !b.current), b => b.name, (b, label) => branchNode(r, b, prs, label), 'branchFolder', b => b.time);
   return [...current.map(b => branchNode(r, b, prs, b.name)), ...rest];
 }
 const fresh = new Map<string, ReturnType<typeof P.freshness>>();
@@ -359,11 +362,18 @@ function registerBranches() {
 // ---------- Remotes ----------
 async function loadRemotes(n?: Node): Promise<Node[]> {
   const r = await root();
-  if (!n) return P.parseRemotes(await git(r, 'remote', '-v')).map(rm => { const x = new Node(rm.name, 'remote', { root: r, name: rm.name }, vscode.TreeItemCollapsibleState.Collapsed); x.description = rm.fetchUrl; x.iconPath = icon('cloud'); x.id = `remote:${rm.name}`; return x; });
+  if (!n) {
+    const [rv, refs, up] = await Promise.all([git(r, 'remote', '-v'), git(r, 'for-each-ref', '--sort=-committerdate', `--format=%(refname:short)${P.SEP}%(committerdate:unix)`, 'refs/remotes').catch(() => ''),
+      git(r, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}').catch(() => '')]);
+    const remotes = P.parseRemotes(rv); const newest = new Map<string, number>();
+    for (const l of P.parseNameList(refs)) { const [ref, t] = l.split(P.SEP); const rm = remotes.find(x => ref.startsWith(x.name + '/')); if (rm && !newest.has(rm.name)) newest.set(rm.name, +t); }
+    const upRemote = remotes.map(x => x.name).filter(x => up.trim().startsWith(x + '/')).sort((a, b) => b.length - a.length)[0];
+    return P.pinSort(remotes, { current: x => x.name === upRemote, name: x => x.name, time: x => newest.get(x.name) ?? 0, by: sortBy() }).map(rm => { const x = new Node(rm.name, 'remote', { root: r, name: rm.name }, vscode.TreeItemCollapsibleState.Collapsed); x.description = rm.fetchUrl; x.iconPath = icon('cloud'); x.id = `remote:${rm.name}`; return x; });
+  }
   if (n.kind === 'remote') {
     const rows = P.parseNameList(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=%(refname:short)${P.SEP}%(committerdate:unix)`, `refs/remotes/${n.data.name}`))
       .map(l => l.split(P.SEP)).filter(([b]) => !b.endsWith('/HEAD') && b !== n.data.name).map(([b, t]) => ({ full: b, short: b.slice(n.data.name.length + 1), time: +t }));
-    return layoutNodes(rows, x => x.short, (b, label) => { const x = new Node(label, 'remoteBranch', { root: r, name: b.full }, vscode.TreeItemCollapsibleState.Collapsed); x.iconPath = icon('git-branch'); x.tooltip = b.full; x.description = b.time ? P.relativeTime(b.time) : ''; x.id = `rb:${b.full}`; return x; }, 'remoteFolder');
+    return layoutNodes(rows, x => x.short, (b, label) => { const x = new Node(label, 'remoteBranch', { root: r, name: b.full }, vscode.TreeItemCollapsibleState.Collapsed); x.iconPath = icon('git-branch'); x.tooltip = b.full; x.description = b.time ? P.relativeTime(b.time) : ''; x.id = `rb:${b.full}`; return x; }, 'remoteFolder', b => b.time);
   }
   if (n.kind === 'remoteFolder') return n.data.children;
   if (n.kind === 'remoteBranch') return refCommits(r, `refs/remotes/${n.data.name}`, `rb:${n.data.name}`);
@@ -404,7 +414,7 @@ function registerStashes() {
     await git(r, 'stash', 'push', ...(inc.startsWith('Include') ? ['-u'] : []), ...(msg ? ['-m', msg] : [])); refreshAll(); });
   cmd('gitKitchen.stash.apply', async (n: Node) => { const r = await root(); await git(r, 'stash', 'apply', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.pop', async (n: Node) => { const r = await root(); await git(r, 'stash', 'pop', n.data.stash.ref); refreshAll(); });
-  cmd('gitKitchen.stash.drop', async (n: Node) => { const r = await root(); if (!await confirm(`Drop ${n.data.stash.ref} "${n.data.stash.message}"? This cannot be undone.`, 'Drop')) return; await git(r, 'stash', 'drop', n.data.stash.ref); refreshAll(); });
+  cmd('gitKitchen.stash.drop', async (n: Node) => { const r = await root(); if (!await confirm(`Delete ${n.data.stash.ref}: ${n.data.stash.message}?`, 'Delete')) return; await git(r, 'stash', 'drop', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.openFile', async (n: Node) => { const r = n.data.root; const parent = await parentOf(r, n.data.sha);
     // Untracked files live in the third parent; fall back to an empty left side.
     const inParent = await git(r, 'cat-file', '-e', `${parent}:${n.data.file}`).then(() => true, () => false);
@@ -592,7 +602,10 @@ function registerHistory() {
 async function loadWorktrees(n?: Node): Promise<Node[]> {
   if (n) return [];
   const r = await root(); const wts = P.parseWorktrees(await git(r, 'worktree', 'list', '--porcelain'));
-  return Promise.all(wts.map(async w => {
+  const top = path.resolve((await git(r, 'rev-parse', '--show-toplevel').catch(() => r)).trim() || r);
+  const times = new Map<string, number>(await Promise.all(wts.map(async w => [w.path, w.head ? +(await git(r, 'log', '-1', '--format=%ct', w.head).catch(() => '0')).trim() || 0 : 0] as [string, number])));
+  const sorted = P.pinSort(wts, { current: w => path.resolve(w.path) === top, name: w => w.branch ?? w.path, time: w => times.get(w.path) ?? 0, by: sortBy() });
+  return Promise.all(sorted.map(async w => {
     const x = new Node(w.branch ?? (w.detached ? `(detached ${w.head?.slice(0, 7)})` : path.basename(w.path)), w.main ? 'worktree.main' : `worktree${w.locked ? '.locked' : ''}`, { root: r, wt: w, path: w.path });
     let dirty = false, ab = '';
     if (!w.prunable && fs.existsSync(w.path)) {
@@ -609,18 +622,33 @@ async function wtPathFromNode(n: Node): Promise<string> {
   if (n.data.path) return n.data.path;
   const p = n.data.branch?.worktreePath; if (p) return p; throw new Error('No worktree for this branch.');
 }
-async function createWorktree(r: string, branch: string, newBranch?: string) {
+async function worktreePathOf(r: string, branch: string): Promise<string | undefined> {
+  return P.parseWorktrees(await git(r, 'worktree', 'list', '--porcelain')).find(w => w.branch === branch)?.path;
+}
+async function createWorktree(r: string, branch: string, newBranch?: string, track = false) {
   const def = P.defaultWorktreePath(r, newBranch ?? branch);
   const choice = await vscode.window.showQuickPick([{ label: 'Default folder', description: def }, { label: 'Choose folder…' }], { title: `Worktree for ${newBranch ?? branch}` }); if (!choice) return;
   let target = def;
   if (choice.label.startsWith('Choose')) { const u = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, openLabel: 'Use this parent folder' }); if (!u) return; target = path.join(u[0].fsPath, (newBranch ?? branch).replace(/[\\/]/g, '-')); }
-  await withProgress('Creating worktree', () => newBranch ? git(r, 'worktree', 'add', '-b', newBranch, target, branch) : git(r, 'worktree', 'add', target, branch));
+  await withProgress('Creating worktree', () => newBranch ? git(r, 'worktree', 'add', '-b', newBranch, ...(track ? ['--track'] : []), target, branch) : git(r, 'worktree', 'add', target, branch));
   refreshAll();
   const open = await vscode.window.showInformationMessage(`Worktree created at ${target}`, 'Open in New Window', 'Open Here');
   if (open) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: open === 'Open in New Window' });
 }
 function registerWorktrees() {
   cmd('gitKitchen.worktree.create', async (n: Node) => { const r = await root(); await createWorktree(r, bn(n)); });
+  cmd('gitKitchen.worktree.openForBranch', async (n: Node) => {
+    const p = n.data.branch?.worktreePath ?? await worktreePathOf(await root(), bn(n)); if (!p) throw new Error('No worktree for this branch.');
+    const open = await vscode.window.showQuickPick(['Open in New Window', 'Open Here'], { title: `Open worktree ${p}` }); if (!open) return;
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(p), { forceNewWindow: open === 'Open in New Window' });
+  });
+  cmd('gitKitchen.worktree.createFromRemote', async (n: Node) => {
+    const r = await root(); const full: string = n.data.name;
+    const remote = P.parseRemotes(await git(r, 'remote', '-v')).map(x => x.name).filter(x => full.startsWith(x + '/')).sort((a, b) => b.length - a.length)[0];
+    const local = remote ? full.slice(remote.length + 1) : full;
+    if (await git(r, 'rev-parse', '--verify', '--quiet', `refs/heads/${local}`).then(() => true, () => false)) throw new Error(`A local branch named ${local} already exists. Use Create Worktree for This Branch on it instead.`);
+    await createWorktree(r, full, local, true);
+  });
   cmd('gitKitchen.worktree.createNewBranch', async (n?: Node) => { const r = await root(); const from = n ? bn(n) : await pickBranch(r, 'New branch from', true); if (!from) return;
     const name = await askName(`New branch from ${from}`); if (!name) return; await createWorktree(r, from, name); });
   cmd('gitKitchen.worktree.openNewWindow', async (n: Node) => vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(await wtPathFromNode(n)), { forceNewWindow: true }));
@@ -644,10 +672,14 @@ function registerWorktrees() {
 // ---------- Pull requests ----------
 async function loadPrs(n?: Node): Promise<Node[]> {
   const r = await root();
-  if (!n) return (await listPrs(r, true)).map(p => {
+  if (!n) {
+    const cur = (await git(r, 'branch', '--show-current').catch(() => '')).trim();
+    const prs = P.pinSort(await listPrs(r, true), { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
+    return prs.map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
     x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = `${p.title}\n${p.url}\nby ${p.author}\nmergeable: ${p.mergeable}`;
     x.iconPath = p.isDraft ? icon('git-pull-request-draft', 'descriptionForeground') : icon('git-pull-request', 'gitKitchen.prOpenForeground'); return x; });
+  }
   if (n.kind === 'pr') {
     const j = JSON.parse(await gh(r, 'pr', 'view', String(n.data.pr.number), '--json', 'commits'));
     return (j.commits ?? []).map((c: any) => commitNode(r, { sha: c.oid, short: c.oid.slice(0, 7), author: c.authors?.[0]?.name ?? '', email: c.authors?.[0]?.email ?? '', date: c.committedDate, subject: c.messageHeadline, parents: [] }));
@@ -716,7 +748,7 @@ async function loadDual(n?: Node): Promise<Node[]> {
     const x = new Node('Choose which remotes to compare…', 'hint'); x.command = { command: 'gitKitchen.dual.chooseRemote', title: 'Choose' }; x.iconPath = icon('filter'); return [x];
   }
   const range = `${pair.target}/${branch}..${pair.source}/${branch}`;
-  const cs = P.parseLog(await git(r, 'log', '-n', '300', `--format=${P.LOG_FORMAT}`, range).catch(() => ''));
+  const cs = P.parseLog(await git(r, 'log', '--date-order', '-n', '300', `--format=${P.LOG_FORMAT}`, range).catch(() => ''));
   if (!cs.length) { const x = new Node(`Everything on ${pair.source}/${branch} is on ${pair.target}`, 'hint'); x.iconPath = icon('pass'); return [x]; }
   return cs.map(c => commitNode(r, c));
 }

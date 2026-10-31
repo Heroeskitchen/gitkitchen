@@ -27,9 +27,12 @@ export async function run() {
     assert.deepStrictEqual(missing, []);
   });
   await check('branches tree groups by prefix with current first', async () => {
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main', 'chore', 'feature', 'old', 'merged-one']);
-    assert.ok(n[0].contextValue.includes('current')); assert.strictEqual(n[2].contextValue, 'branchFolder');
-    const kids = await t.loadBranches(n[2]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main', 'feature', 'merged-one', 'chore', 'old']);
+    assert.ok(n[0].contextValue.includes('current')); assert.strictEqual(n[1].contextValue, 'branchFolder');
+    const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('sortBy', 'name', vscode.ConfigurationTarget.Global);
+    assert.deepStrictEqual((await t.loadBranches()).map((x: any) => x.label), ['main', 'chore', 'feature', 'old', 'merged-one']);
+    await c.update('sortBy', undefined, vscode.ConfigurationTarget.Global);
+    const kids = await t.loadBranches(n[1]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
     assert.ok(kids[0].contextValue.includes('worktree')); assert.match(String(kids[0].description), /no upstream · .*ago|just now/);
   });
   await check('branches list layout setting flattens', async () => {
@@ -153,8 +156,8 @@ export async function run() {
     const pj = ext.packageJSON.contributes; const nav: Record<string, number> = {};
     for (const e of pj.menus['view/title']) if (String(e.group).startsWith('navigation')) nav[e.when] = (nav[e.when] ?? 0) + 1;
     assert.ok(Object.values(nav).every(v => v <= 3), JSON.stringify(nav));
-    assert.ok(!pj.menus['view/item/context'].some((e: any) => /delete|remove|drop|abort/.test(e.command) && String(e.group).startsWith('inline')));
-    assert.ok(pj.menus['view/item/context'].filter((e: any) => /\.(delete|remove|drop)$|operation\.abort/.test(e.command)).every((e: any) => e.group.startsWith('9_danger')));
+    assert.ok(!pj.menus['view/item/context'].some((e: any) => /delete|remove|drop|abort/.test(e.command) && e.command !== 'gitKitchen.stash.drop' && String(e.group).startsWith('inline')));
+    assert.ok(pj.menus['view/item/context'].filter((e: any) => /\.(delete|remove|drop)$|operation\.abort/.test(e.command) && !String(e.group).startsWith('inline')).every((e: any) => e.group.startsWith('9_danger')));
     assert.ok(!pj.viewsContainers); assert.ok(pj.colors.some((c: any) => c.id === 'gitKitchen.branchStaleForeground' && c.defaults.dark === 'gitDecoration.ignoredResourceForeground'));
     assert.strictEqual(pj.views.scm.find((v: any) => v.id === 'gitKitchen.dual').when, 'gitKitchen.multiRemote');
     assert.ok(!JSON.stringify(pj).includes('git-branch-create'));
@@ -251,6 +254,51 @@ export async function run() {
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.colorLabels', false, vscode.ConfigurationTarget.Global);
     assert.strictEqual(dec(main), undefined); await c.update('branches.colorLabels', undefined, vscode.ConfigurationTarget.Global);
   });
+  await check('stash rows: inline apply and trash; delete asks first', async () => {
+    const pkg = require(path.join(__dirname, '..', '..', 'package.json'));
+    const inline = pkg.contributes.menus['view/item/context'].filter((m: any) => m.group?.startsWith('inline') && /viewItem == stash\b/.test(m.when));
+    assert.deepStrictEqual(inline.map((m: any) => [m.command, m.group]), [['gitKitchen.stash.apply', 'inline@1'], ['gitKitchen.stash.drop', 'inline@2']]);
+    assert.strictEqual(pkg.contributes.commands.find((c: any) => c.command === 'gitKitchen.stash.drop').icon, '$(trash)');
+    fs.writeFileSync(path.join(root, 'trash.txt'), 'x\n'); sh(root, 'add', 'trash.txt'); sh(root, 'stash', 'push', '-m', 'to delete');
+    const orig = vscode.window.showWarningMessage; let asked = ''; let answer: string | undefined;
+    (vscode.window as any).showWarningMessage = async (m: string, o: any, ...items: string[]) => { asked = m; assert.strictEqual(o.modal, true); assert.deepStrictEqual(items, ['Delete']); return answer; };
+    try {
+      const row = (await t.loadStashes()).find((x: any) => /to delete/.test(String(x.label)));
+      await vscode.commands.executeCommand('gitKitchen.stash.drop', row);
+      assert.strictEqual(asked, `Delete ${row.data.stash.ref}: ${row.data.stash.message}?`); assert.match(asked, /^Delete stash@\{0\}: .*to delete\?$/);
+      assert.match(sh(root, 'stash', 'list'), /to delete/);
+      answer = 'Delete'; await vscode.commands.executeCommand('gitKitchen.stash.drop', row);
+      assert.doesNotMatch(sh(root, 'stash', 'list'), /to delete/);
+    } finally { (vscode.window as any).showWarningMessage = orig; }
+  });
+  await check('create worktree for an existing local or remote branch; open it when it exists', async () => {
+    const pj = require(path.join(__dirname, '..', '..', 'package.json')).contributes;
+    const ctx = pj.menus['view/item/context']; const at = (id: string) => ctx.find((m: any) => m.command === id);
+    assert.strictEqual(pj.commands.find((x: any) => x.command === 'gitKitchen.worktree.create').title, 'Create Worktree for This Branch…');
+    assert.strictEqual(at('gitKitchen.worktree.create').group, '6_wt@1'); assert.strictEqual(at('gitKitchen.worktree.createNewBranch').group, '6_wt@2');
+    assert.match(at('gitKitchen.worktree.create').when, /noWorktree/); assert.match(at('gitKitchen.worktree.openForBranch').when, /\\.worktree/);
+    assert.match(at('gitKitchen.worktree.createFromRemote').when, /remoteBranch/);
+    const qp = vscode.window.showQuickPick; const info = vscode.window.showInformationMessage;
+    (vscode.window as any).showQuickPick = async (items: any[]) => items[0]; (vscode.window as any).showInformationMessage = async () => undefined;
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-wtr-'));
+    try {
+      sh(root, 'branch', 'wt/local'); await t.refresh?.();
+      const row = { data: { root, branch: { name: 'wt/local' } } };
+      await vscode.commands.executeCommand('gitKitchen.worktree.create', row);
+      assert.match(sh(root, 'worktree', 'list', '--porcelain'), /branch refs\/heads\/wt\/local/);
+      const flat: any[] = []; const walk = async (xs: any[]) => { for (const x of xs) { if (x.contextValue === 'branchFolder') await walk(await t.loadBranches(x)); else flat.push(x); } }; await walk(await t.loadBranches());
+      assert.match(flat.find(x => x.data.branch.name === 'wt/local').contextValue, /\.worktree\b/);
+      sh(bare, 'init', '-q', '--bare'); sh(root, 'push', '-q', bare, 'main:refs/heads/wt/remote'); sh(root, 'remote', 'add', 'wtr', bare); sh(root, 'fetch', '-q', 'wtr');
+      await vscode.commands.executeCommand('gitKitchen.worktree.createFromRemote', { data: { root, name: 'wtr/wt/remote' } });
+      assert.match(sh(root, 'worktree', 'list', '--porcelain'), /branch refs\/heads\/wt\/remote/);
+      assert.strictEqual(sh(root, 'rev-parse', '--abbrev-ref', 'wt/remote@{upstream}').trim(), 'wtr/wt/remote');
+    } finally {
+      (vscode.window as any).showQuickPick = qp; (vscode.window as any).showInformationMessage = info;
+      for (const b of ['wt/local', 'wt/remote']) { const m = new RegExp(`worktree (.*)\\nHEAD .*\\nbranch refs/heads/${b}`).exec(sh(root, 'worktree', 'list', '--porcelain')); if (m) sh(root, 'worktree', 'remove', '--force', m[1]); }
+      try { sh(root, 'remote', 'remove', 'wtr'); } catch { /* ignore */ }
+      for (const b of ['wt/local', 'wt/remote']) { try { sh(root, 'branch', '-D', b); } catch { /* ignore */ } }
+    }
+  });
   if (process.env.GK_SHOTS) await screenshots(t, root);
   console.log('\n===== GIT KITCHEN SMOKE =====\n' + results.join('\n') + '\n========================');
   if (results.some(r => r.startsWith('FAIL'))) throw new Error('smoke failures');
@@ -265,28 +313,29 @@ async function screenshots(t: any, root: string) {
   // A merge with one conflict so the Commits view shows the in-progress row.
   sh(root, 'checkout', '-qb', 'shot/conflict'); fs.writeFileSync(path.join(root, 'pkg', 'z.ts'), 'theirs\n'); sh(root, 'commit', '-qam', 'Conflicting change');
   sh(root, 'checkout', '-q', 'main'); fs.writeFileSync(path.join(root, 'pkg', 'z.ts'), 'ours\n'); sh(root, 'commit', '-qam', 'Our change');
+  fs.writeFileSync(path.join(root, 'notes.md'), 'draft\n'); sh(root, 'add', 'notes.md'); sh(root, 'stash', 'push', '-m', 'WIP notes');
   const fresh = sh(root, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Fresh work').trim(); sh(root, 'branch', 'feat/fresh', fresh);
   try { sh(root, 'merge', 'shot/conflict'); } catch { /* conflict expected */ }
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-  try { execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'code', 'windowmove', '0', '0', 'windowsize', '1600', '1000']); } catch { /* best effort */ }
+  try { execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'code', 'windowmove', '0', '0', 'windowsize', '1600', '1400']); } catch { /* best effort */ }
   await vscode.commands.executeCommand('workbench.view.scm');
   for (const c of ['workbench.action.closeAuxiliaryBar', 'workbench.action.closePanel', 'notifications.clearAll']) { try { await vscode.commands.executeCommand(c); } catch { /* ignore */ } }
   await wait(500);
   try { execFileSync('xdotool', ['mousemove', '219', '400', 'mousedown', '1', 'mousemove', '400', '400', 'mousemove', '600', '400', 'mouseup', '1']); } catch { /* best effort */ }
-  for (const id of ['gitKitchen.remotes', 'gitKitchen.stashes', 'gitKitchen.worktrees', 'gitKitchen.prs', 'gitKitchen.merged', 'gitKitchen.todos', 'gitKitchen.history', 'workbench.scm', 'workbench.scm.history', 'workbench.scm.repositories']) {
+  for (const id of ['gitKitchen.remotes', 'gitKitchen.worktrees', 'gitKitchen.prs', 'gitKitchen.merged', 'gitKitchen.todos', 'gitKitchen.history', 'workbench.scm', 'workbench.scm.history', 'workbench.scm.repositories']) {
     try { await vscode.commands.executeCommand(`${id}.removeView`); } catch { /* not present */ }
   }
-  await vscode.commands.executeCommand('gitKitchen.commits.focus'); await vscode.commands.executeCommand('gitKitchen.branches.focus');
+  await vscode.commands.executeCommand('gitKitchen.commits.focus'); await vscode.commands.executeCommand('gitKitchen.stashes.focus'); await vscode.commands.executeCommand('gitKitchen.branches.focus');
   await vscode.commands.executeCommand('gitKitchen.refresh'); await wait(1500);
   const bv = t.views['gitKitchen.branches']; const top = await t.loadBranches();
-  for (const f of top.filter((x: any) => x.contextValue === 'branchFolder')) { try { await bv.reveal(f, { expand: true }); } catch { /* ignore */ } }
+    for (const f of top.filter((x: any) => x.contextValue === 'branchFolder')) { try { await bv.reveal(f, { expand: true }); } catch { /* ignore */ } }
   try { await bv.reveal(top[0], { select: true, focus: true }); } catch { /* ignore */ }
   for (const [name, theme] of [['scm-dark', 'Default Dark Modern'], ['scm-light', 'Default Light Modern']]) {
     await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Global); await wait(2500);
     try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
     if (process.env.GK_HOVER) { const [x, y] = process.env.GK_HOVER.split(','); execFileSync('xdotool', ['mousemove', x, y]); await wait(800); }
     const file = path.join(out, `${name}.png`);
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'x11grab', '-video_size', '1600x1000', '-i', process.env.DISPLAY!, '-frames:v', '1', file]);
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'x11grab', '-video_size', '1600x1400', '-i', process.env.DISPLAY!, '-frames:v', '1', file]);
     console.log('SHOT ' + file);
   }
   await vscode.workspace.getConfiguration('workbench').update('colorTheme', undefined, vscode.ConfigurationTarget.Global);

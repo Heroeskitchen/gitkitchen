@@ -315,3 +315,40 @@ describe('commit card', () => {
     expect(p.commitCardMarkdown(d)).toContain('$(account) **Ann Lee**');
   });
 });
+
+describe('branch sort', () => {
+  const bs = [
+    { name: 'zeta', time: 50, current: false }, { name: 'feat/old', time: 10, current: false }, { name: 'feat/new', time: 90, current: false },
+    { name: 'main', time: 5, current: true }, { name: 'alpha', time: 70, current: false }, { name: 'fix/x/y', time: 30, current: false },
+  ];
+  const o = { current: (b: any) => b.current, name: (b: any) => b.name, time: (b: any) => b.time };
+  it('pins the current branch, then date or name', () => {
+    expect(p.sortBranches(bs, { ...o, by: 'date' }).map(b => b.name)).toEqual(['main', 'feat/new', 'alpha', 'zeta', 'fix/x/y', 'feat/old']);
+    expect(p.sortBranches(bs, { ...o, by: 'name' }).map(b => b.name)).toEqual(['main', 'alpha', 'feat/new', 'feat/old', 'fix/x/y', 'zeta']);
+  });
+  it('sorts folders by their newest child', () => {
+    const rest = bs.filter(b => !b.current);
+    const t = p.groupByPrefix(rest, b => b.name, b => b.time);
+    expect(t.map(e => e.name)).toEqual(['feat', 'alpha', 'zeta', 'fix']);
+    expect((t[0] as any).children.map((e: any) => e.name)).toEqual(['new', 'old']);
+    expect(p.groupByPrefix(rest, b => b.name).map(e => e.name)).toEqual(['feat', 'fix', 'alpha', 'zeta']);
+  });
+});
+
+describe('pinned sort in every view', () => {
+  it('remotes: upstream remote first, then newest ref', () => {
+    const rs = [{ name: 'acme', t: 30 }, { name: 'origin', t: 10 }, { name: 'zed', t: 90 }];
+    const o = { name: (x: any) => x.name, time: (x: any) => x.t };
+    expect(p.pinSort(rs, { ...o, current: x => x.name === 'origin', by: 'date' }).map(x => x.name)).toEqual(['origin', 'zed', 'acme']);
+    expect(p.pinSort(rs, { ...o, current: () => false, by: 'name' }).map(x => x.name)).toEqual(['acme', 'origin', 'zed']);
+  });
+  it('worktrees: current first, then HEAD date', () => {
+    const ws = [{ path: '/a', t: 5 }, { path: '/b', t: 50 }, { path: '/c', t: 20 }];
+    expect(p.pinSort(ws, { current: w => w.path === '/c', name: w => w.path, time: w => w.t, by: 'date' }).map(w => w.path)).toEqual(['/c', '/b', '/a']);
+  });
+  it('pull requests: current branch PR first, then updatedAt', () => {
+    const prs = [{ h: 'a', u: '2026-10-01T00:00:00Z' }, { h: 'b', u: '2026-10-30T00:00:00Z' }, { h: 'cur', u: '2026-01-01T00:00:00Z' }, { h: 'd', u: '' }];
+    expect(p.pinSort(prs, { current: x => x.h === 'cur', name: x => x.h, time: x => Date.parse(x.u) || 0, by: 'date' }).map(x => x.h)).toEqual(['cur', 'b', 'a', 'd']);
+    expect(p.parsePrs('[{"number":1,"updatedAt":"2026-10-30T00:00:00Z"}]')[0].updatedAt).toBe('2026-10-30T00:00:00Z');
+  });
+});
