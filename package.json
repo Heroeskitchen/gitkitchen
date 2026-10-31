@@ -2,7 +2,7 @@
   "name": "gitkitchen",
   "displayName": "Git Kitchen",
   "description": "Branches, remotes, stashes, worktrees, pull requests, blame and history for the editor.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "heroeskitchen",
   "license": "MIT",
   "repository": {
