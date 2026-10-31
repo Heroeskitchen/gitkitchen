@@ -136,7 +136,7 @@ function commitAvatar(r: string, c: P.Commit): vscode.ThemeIcon | vscode.Uri {
   const h = P.emailHash(c.email); const dir = avatarDir(); const png = path.join(dir, `${h}.png`); const svg = path.join(dir, `${h}.svg`);
   if (freshFile(png)) return vscode.Uri.file(png);
   if (!fs.existsSync(svg)) fs.writeFileSync(svg, P.initialsSvg(c.author, c.email));
-  if (!freshFile(`${svg}.checked`) && !avatarDone.has(h) && !avatarPending.has(h)) { avatarPending.set(h, { r, c }); avatarTimer ??= setTimeout(resolveAvatars, 300); }
+  if (c.sha && !freshFile(`${svg}.checked`) && !avatarDone.has(h) && !avatarPending.has(h)) { avatarPending.set(h, { r, c }); avatarTimer ??= setTimeout(resolveAvatars, 300); }
   return vscode.Uri.file(svg);
 }
 async function download(url: string, file: string): Promise<boolean> {
@@ -166,6 +166,13 @@ async function resolveAvatars() {
     else fs.writeFileSync(path.join(dir, `${h}.svg.checked`), '');
   }));
   if (changed) refreshAll();
+}
+function md(text: string): vscode.MarkdownString { const m = new vscode.MarkdownString(text, true); m.isTrusted = true; m.supportHtml = true; m.supportThemeIcons = true; return m; }
+/** The cached avatar (or initials) as a data URI for markdown cards. */
+function avatarData(r: string, author: string, email: string): string | undefined {
+  if (!email) return; const u = commitAvatar(r, { sha: '', short: '', author, email, date: '', subject: '', parents: [] });
+  if (!(u instanceof vscode.Uri)) return;
+  try { return `data:image/${u.fsPath.endsWith('.svg') ? 'svg+xml' : 'png'};base64,${fs.readFileSync(u.fsPath).toString('base64')}`; } catch { return; }
 }
 function commitNode(r: string, c: P.Commit, file?: string): Node {
   const n = new Node(c.subject, file ? 'historyCommit' : 'commit', { root: r, sha: c.sha, file, commit: c });
@@ -300,8 +307,8 @@ async function branchChildren(n: Node): Promise<Node[]> {
   const remote = b.upstream?.split('/')[0] ?? '';
   if (b.upstream && !b.gone) {
     const plural = (k: number) => `${k} commit${k === 1 ? '' : 's'}`;
-    if (b.behind) { const x = new Node('Incoming', 'syncGroup', { root: r, range: `${ref}..refs/remotes/${b.upstream}`, key: `in:${b.name}` }, vscode.TreeItemCollapsibleState.Collapsed); x.description = `${plural(b.behind)} to pull from ${remote}`; x.iconPath = icon('cloud-download', 'gitKitchen.branchBehindForeground'); x.id = `in:${b.name}`; out.push(x); }
-    if (b.ahead) { const x = new Node('Outgoing', 'syncGroup', { root: r, range: `refs/remotes/${b.upstream}..${ref}`, key: `out:${b.name}` }, vscode.TreeItemCollapsibleState.Collapsed); x.description = `${plural(b.ahead)} to push to ${remote}`; x.iconPath = icon('cloud-upload', 'gitKitchen.branchAheadForeground'); x.id = `out:${b.name}`; out.push(x); }
+    if (b.behind) { const x = new Node('Incoming', 'syncGroup', { root: r, range: `${ref}..refs/remotes/${b.upstream}`, key: `in:${b.name}` }, vscode.TreeItemCollapsibleState.Collapsed); x.description = `${plural(b.behind)} to pull from ${remote}`; x.tooltip = md(P.syncGroupCardMarkdown('Incoming', b.behind, b.name, b.upstream)); x.iconPath = icon('cloud-download', 'gitKitchen.branchBehindForeground'); x.id = `in:${b.name}`; out.push(x); }
+    if (b.ahead) { const x = new Node('Outgoing', 'syncGroup', { root: r, range: `refs/remotes/${b.upstream}..${ref}`, key: `out:${b.name}` }, vscode.TreeItemCollapsibleState.Collapsed); x.description = `${plural(b.ahead)} to push to ${remote}`; x.tooltip = md(P.syncGroupCardMarkdown('Outgoing', b.ahead, b.name, b.upstream)); x.iconPath = icon('cloud-upload', 'gitKitchen.branchAheadForeground'); x.id = `out:${b.name}`; out.push(x); }
     const c = new Node(`Compare ${b.name} with ${b.upstream}`, 'compareUpstream'); c.iconPath = icon('git-compare'); c.id = `cmp:${b.name}`;
     c.command = { command: 'gitKitchen.branch.compareUpstream', title: 'Compare with Upstream', arguments: [n] }; out.push(c);
     const sep = new Node('', 'separator'); sep.description = '────────── commits'; sep.id = `sep:${b.name}`; out.push(sep);
@@ -361,11 +368,14 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);
   const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
-  x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}${st.state ? '\n' + st.state : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}${f ? '\n' + f.reason : ''}${b.gone ? '\nupstream gone' : ''}`;
+  const brPr = P.prForBranch(allPrs, b.name);
   const mergedRow = st.icon === 'git-merge';
   // Merged branches: default label, merge glyph with a purple dot.
   const tone = mergedRow ? '' : b.gone ? 'gone' : P.syncTone(b, b.upstream ? syncTimes.get(b.upstream) : undefined, Date.now(), vscode.workspace.getConfiguration('gitKitchen').get('recentSyncMinutes', 60));
-  if (b.upstream && !b.gone) x.tooltip += `\n${P.syncText(b, tone === 'gone' ? undefined : tone)}`;
+  const prUrl = brPr && prCache?.prs.find(p => p.number === brPr.number)?.url;
+  x.tooltip = md(P.branchCardMarkdown(b, { root: r, state: st.state ?? (b.gone ? 'Upstream gone' : undefined), syncText: b.upstream && !b.gone ? P.syncText(b, tone === 'gone' ? undefined : tone) : undefined,
+    freshness: f?.reason, when: b.time ? P.relativeTime(b.time) : undefined, author: b.author, avatar: b.email ? avatarData(r, b.author ?? '', b.email) : undefined,
+    pr: brPr ? { number: brPr.number, state: brPr.isDraft && brPr.state === 'OPEN' ? 'DRAFT' : brPr.state, url: prUrl } : undefined }));
   // Every colored state: its glyph in that color with a matching dot; merged: default glyph, purple dot.
   const dot = mergedRow ? 'merged' : tone; const glyph = GLYPH_FILE[st.icon];
   x.iconPath = dot && glyph ? overlayIcon(glyph, dot) : icon(st.icon);
@@ -437,7 +447,9 @@ async function loadRemotes(n?: Node): Promise<Node[]> {
     const remotes = P.parseRemotes(rv); const newest = new Map<string, number>();
     for (const l of P.parseNameList(refs)) { const [ref, t] = l.split(P.SEP); const rm = remotes.find(x => ref.startsWith(x.name + '/')); if (rm && !newest.has(rm.name)) newest.set(rm.name, +t); }
     const upRemote = remotes.map(x => x.name).filter(x => up.trim().startsWith(x + '/')).sort((a, b) => b.length - a.length)[0];
-    return P.pinSort(remotes, { current: x => x.name === upRemote, name: x => x.name, time: x => newest.get(x.name) ?? 0, by: sortBy() }).map(rm => { const x = new Node(rm.name, 'remote', { root: r, name: rm.name }, vscode.TreeItemCollapsibleState.Collapsed); x.description = rm.fetchUrl; x.iconPath = icon('cloud'); x.id = `remote:${rm.name}`; return x; });
+    return P.pinSort(remotes, { current: x => x.name === upRemote, name: x => x.name, time: x => newest.get(x.name) ?? 0, by: sortBy() }).map(rm => { const x = new Node(rm.name, 'remote', { root: r, name: rm.name }, vscode.TreeItemCollapsibleState.Collapsed); x.description = rm.fetchUrl; x.iconPath = icon('cloud'); x.id = `remote:${rm.name}`;
+      const count = P.parseNameList(refs).filter(l => l.startsWith(rm.name + '/') && !l.split(P.SEP)[0].endsWith('/HEAD')).length;
+      x.tooltip = md(P.remoteCardMarkdown({ name: rm.name, fetchUrl: rm.fetchUrl, pushUrl: rm.pushUrl ?? rm.fetchUrl, branches: count, web: P.githubWebUrl(rm.fetchUrl) || undefined })); return x; });
   }
   if (n.kind === 'remote') {
     const rows = P.parseNameList(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=%(refname:short)${P.SEP}%(committerdate:unix)`, `refs/remotes/${n.data.name}`))
@@ -474,13 +486,16 @@ async function loadStashes(n?: Node): Promise<Node[]> {
 }
 async function resolveStash(n: Node) {
   if (n.kind !== 'stash' || n.tooltip) return;
-  const s = n.data.stash as P.Stash; const stat = await git(n.data.root, 'stash', 'show', '--stat', s.ref).catch(() => '');
-  n.tooltip = new vscode.MarkdownString(`**${s.message}**\n\n${new Date(s.date).toLocaleString()}\n\n\`\`\`\n${stat.trim()}\n\`\`\``);
+  const s = n.data.stash as P.Stash; const num = await git(n.data.root, 'stash', 'show', '--numstat', s.ref).catch(() => '');
+  let files = 0, ins = 0, del = 0; for (const l of P.parseNameList(num)) { const [a, d] = l.split('\t'); files++; ins += +a || 0; del += +d || 0; }
+  const branch = /^(?:WIP on|On) ([^:]+):/.exec(s.message)?.[1];
+  n.tooltip = md(P.stashCardMarkdown(s, { branch, dateText: new Date(s.date).toLocaleString(), when: P.relativeTime(Date.parse(s.date) / 1000), files, insertions: ins, deletions: del }));
 }
 function registerStashes() {
   cmd('gitKitchen.stash.save', async () => { const r = await root(); const msg = await vscode.window.showInputBox({ prompt: 'Stash message (optional)' }); if (msg === undefined) return;
     const inc = await vscode.window.showQuickPick(['Tracked changes', 'Include untracked files'], { title: 'Stash' }); if (!inc) return;
     await git(r, 'stash', 'push', ...(inc.startsWith('Include') ? ['-u'] : []), ...(msg ? ['-m', msg] : [])); refreshAll(); });
+  cmd('gitKitchen.stash.applyRef', async (ref: string) => { const r = await root(); await git(r, 'stash', 'apply', ref); refreshAll(); });
   cmd('gitKitchen.stash.apply', async (n: Node) => { const r = await root(); await git(r, 'stash', 'apply', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.pop', async (n: Node) => { const r = await root(); await git(r, 'stash', 'pop', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.drop', async (n: Node) => { const r = await root(); if (!await confirm(`Delete ${n.data.stash.ref}: ${n.data.stash.message}?`, 'Delete')) return; await git(r, 'stash', 'drop', n.data.stash.ref); refreshAll(); });
@@ -604,17 +619,13 @@ const hoverProvider: vscode.HoverProvider = {
     let hunk = '';
     if (vscode.workspace.getConfiguration('gitKitchen').get('blame.changesHover', true) && bl.origLine) {
       const d = await git(b.r, 'show', '--format=', '--no-color', '--no-ext-diff', '-U3', bl.sha, '--', file).catch(() => '');
-      const h = P.hunkForLine(d, bl.origLine);
-      if (h) hunk = `\n\n---\n\n**Changes in this commit**\n\n\`\`\`diff\n${h.split('\n').slice(0, 40).join('\n')}\n\`\`\``;
+      hunk = (P.hunkForLine(d, bl.origLine) ?? '').split('\n').slice(0, 40).join('\n');
     }
-    const a = (o: any) => encodeURIComponent(JSON.stringify([o]));
-    const links = '\n\n---\n\n' +
-      `[Open Changes](command:gitKitchen.openCommitDiff?${a({ root: b.r, sha: bl.sha, file })}) · ` +
-      `[Compare with Working File](command:gitKitchen.compareCommitWorking?${a({ root: b.r, sha: bl.sha, file: rel(b.r, doc.fileName) })}) · ` +
-      `[All Files in Commit](command:gitKitchen.openCommitDiff?${a({ root: b.r, sha: bl.sha })}) · ` +
-      `[Copy Link](command:gitKitchen.copyCommitLink?${a({ root: b.r, sha: bl.sha, file, line: bl.line })})` + hunk;
-    const md = await commitCard(b.r, bl.sha, links) ?? new vscode.MarkdownString(`**${bl.summary}**` + links);
-    md.isTrusted = true; return new vscode.Hover(md);
+    const info = await commitInfo(b.r, bl.sha);
+    const text = info.d ? P.blameHoverMarkdown(info.d, { avatar: info.avatar ?? avatarData(b.r, info.d.author, info.d.email), web: info.web, root: b.r, file, line: bl.line, hunk: hunk || undefined })
+      : `**${bl.summary.replace(/[\\`*_[\]<>]/g, '\\$&')}**`;
+    const m = md(text);
+    return new vscode.Hover(m);
   }
 };
 function registerBlame() {
@@ -663,6 +674,35 @@ function registerHistory() {
   cmd('gitKitchen.commit.copyLink', async (n: Node) => { const url = n.data.file ? P.commitLineUrl(await webUrl(n.data.root), n.data.sha, n.data.file, 1).replace(/#L1$/, '') : `${await webUrl(n.data.root)}/commit/${n.data.sha}`;
     await vscode.env.clipboard.writeText(url); vscode.window.setStatusBarMessage(`Copied ${url}`, 4000); });
   cmd('gitKitchen.commit.openOnGitHub', async (n: Node) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(n.data.root)}/commit/${n.data.sha}`)));
+  cmd('gitKitchen.copyText', async (text: string) => { await vscode.env.clipboard.writeText(String(text)); vscode.window.setStatusBarMessage('Copied', 1500); });
+  cmd('gitKitchen.commit.copyMessage', async (a: { root: string; sha: string }) => { await vscode.env.clipboard.writeText((await git(a.root, 'log', '-1', '--format=%B', a.sha)).trim()); vscode.window.setStatusBarMessage('Copied commit message', 1500); });
+  cmd('gitKitchen.commit.search', async (a?: { root: string; sha: string }) => {
+    const r = a?.root ?? await root(); const q = (a as any)?.direct ? a!.sha : await vscode.window.showInputBox({ title: 'Search Commits', prompt: 'SHA, message text or author', value: a?.sha?.slice(0, 7) }); if (!q) return;
+    const bySha = /^[0-9a-f]{4,40}$/i.test(q) ? P.parseLog(await git(r, 'log', '--all', '-n', '1', `--format=${P.LOG_FORMAT}`, q, '--').catch(() => '')) : [];
+    const found = [...bySha, ...P.parseLog(await git(r, 'log', '--all', '-n', '200', '-i', `--grep=${q}`, `--format=${P.LOG_FORMAT}`).catch(() => '')), ...P.parseLog(await git(r, 'log', '--all', '-n', '200', '-i', `--author=${q}`, `--format=${P.LOG_FORMAT}`).catch(() => ''))];
+    const seen = new Set<string>(); const items = found.filter(c => !seen.has(c.sha) && seen.add(c.sha)).map(c => ({ label: c.subject, description: `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`, sha: c.sha }));
+    const pick = await vscode.window.showQuickPick(items, { title: `Commits matching "${q}"`, matchOnDescription: true }); if (pick) await openCommitDiff({ root: r, sha: pick.sha });
+  });
+  cmd('gitKitchen.commit.openOnRemote', async (a: { root: string; sha: string }) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(a.root)}/commit/${a.sha}`)));
+  cmd('gitKitchen.blame.comparePrevious', async (a: { root: string; sha: string; file: string }) => {
+    const prev = (await git(a.root, 'rev-parse', '--verify', '-q', `${a.sha}^`).catch(() => '')).trim();
+    await diffFile(a.root, prev || undefined, undefined, a.file);
+  });
+  cmd('gitKitchen.blame.openRevision', async (a: { root: string; sha: string; file: string; line?: number }) => {
+    const ed = await vscode.window.showTextDocument(refUri(a.root, a.sha, a.file), { preview: true });
+    if (a.line) { const p = new vscode.Position(Math.max(0, a.line - 1), 0); ed.selection = new vscode.Selection(p, p); ed.revealRange(new vscode.Range(p, p), vscode.TextEditorRevealType.InCenter); }
+  });
+  cmd('gitKitchen.blame.previous', async (a: { root: string; sha: string; file: string; line?: number }) => {
+    const out = await git(a.root, 'blame', '--porcelain', '-L', `${a.line ?? 1},${a.line ?? 1}`, `${a.sha}^`, '--', a.file).catch(() => '');
+    const prev = /^([0-9a-f]{40})/.exec(out)?.[1];
+    if (!prev) { vscode.window.showInformationMessage('No earlier revision of this line.'); return; }
+    await openCommitDiff({ root: a.root, sha: prev, file: a.file });
+  });
+  cmd('gitKitchen.commit.reveal', async (a: { root: string; sha: string }) => {
+    await vscode.commands.executeCommand('gitKitchen.commits.focus');
+    const v = views['gitKitchen.commits']; const nodes = await refCommits(a.root, 'HEAD', 'commits'); const hit = nodes.find(x => x.data?.sha === a.sha);
+    if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
+  });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
 }
@@ -683,7 +723,7 @@ async function loadWorktrees(n?: Node): Promise<Node[]> {
       const m = /(\d+)\s+(\d+)/.exec(t); if (m) ab = [+m[2] ? `↑${m[2]}` : '', +m[1] ? `↓${m[1]}` : ''].filter(Boolean).join(' ');
     }
     x.description = [dirty ? '●' : '', ab, w.locked ? 'locked' : '', w.prunable ? 'missing' : '', path.relative(r, w.path) || '.'].filter(Boolean).join('  ');
-    x.tooltip = `${w.path}${dirty ? '\nHas uncommitted changes' : ''}`; x.iconPath = icon(w.locked ? 'lock' : 'worktree', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined);
+    const subj = w.head ? (await git(r, 'log', '-1', '--format=%s', w.head).catch(() => '')).trim() : ''; x.tooltip = md(P.worktreeCardMarkdown(w, { dirty, subject: subj })); x.iconPath = icon(w.locked ? 'lock' : 'worktree', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined);
     return x;
   }));
 }
@@ -746,7 +786,7 @@ async function loadPrs(n?: Node): Promise<Node[]> {
     const prs = P.pinSort(await listPrs(r, true), { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
     return prs.map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
-    x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = `${p.title}\n${p.url}\nby ${p.author}\nmergeable: ${p.mergeable}`;
+    x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
     x.iconPath = p.isDraft ? icon('git-pull-request-draft', 'descriptionForeground') : icon('git-pull-request', 'gitKitchen.prOpenForeground'); return x; });
   }
   if (n.kind === 'pr') {

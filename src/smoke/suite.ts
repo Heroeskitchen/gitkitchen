@@ -139,17 +139,18 @@ export async function run() {
     await vscode.commands.executeCommand('gitKitchen.explorer.clearDefaultWorkspace', vscode.Uri.file(wsf)); fs.unlinkSync(wsf);
   });
   const cp = require('child_process'); const fs = require('fs'); const os = require('os');
+  const tip = (x: any) => String(x.tooltip?.value ?? x.tooltip);
   const sh = (cwd: string, ...a: string[]) => cp.execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', ...a], { cwd }).toString();
   await check('branch icons: git-branch, untinted without upstream, freshness in tooltip', async () => {
     const n = await t.loadBranches();
     assert.strictEqual(n[0].iconPath.id, 'git-branch'); assert.match(String(n[0].description), /^no upstream • /); assert.strictEqual(n[0].iconPath.color, undefined);
     const aging = (await t.loadBranches(n.find((x: any) => x.label === 'chore')))[0];
-    assert.strictEqual(aging.iconPath.color, undefined); assert.match(aging.tooltip, /1 behind · last commit 20d ago · aging/);
+    assert.strictEqual(aging.iconPath.color, undefined); assert.match(tip(aging), /1 behind · last commit 20d ago · aging/);
     const stale = (await t.loadBranches(n.find((x: any) => x.label === 'old')))[0];
-    assert.strictEqual(stale.iconPath.color, undefined); assert.match(stale.tooltip, /last commit 90d ago · stale/);
+    assert.strictEqual(stale.iconPath.color, undefined); assert.match(tip(stale), /last commit 90d ago · stale/);
     const two = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[1];
-    assert.strictEqual(two.iconPath.color, undefined); assert.match(two.tooltip, /0 behind · last commit 0d ago · fresh/);
-    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.match(one.iconPath.dark.path, /merge-merged-dark\.svg$/); assert.match(one.iconPath.light.path, /merge-merged-light\.svg$/); assert.ok(fs.existsSync(one.iconPath.dark.fsPath)); assert.match(one.tooltip, /Merged into main/);
+    assert.strictEqual(two.iconPath.color, undefined); assert.match(tip(two), /0 behind · last commit 0d ago · fresh/);
+    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.match(one.iconPath.dark.path, /merge-merged-dark\.svg$/); assert.match(one.iconPath.light.path, /merge-merged-light\.svg$/); assert.ok(fs.existsSync(one.iconPath.dark.fsPath)); assert.match(tip(one), /Merged into main/);
     assert.strictEqual(t.branchDecorations.provideFileDecoration(one.resourceUri, new vscode.CancellationTokenSource().token), undefined);
     assert.strictEqual(aging.iconPath.id, 'git-branch');
   });
@@ -240,8 +241,24 @@ export async function run() {
     ed.selection = new vscode.Selection(0, 0, 0, 0); await t.updateBlame(); await new Promise(r => setTimeout(r, 300));
     assert.match(String(t.statusTooltip()?.value ?? t.statusTooltip()), /Nested files/);
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, new vscode.Position(0, 0));
-    const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n'); assert.match(text, /\+3 ~0 -0/); assert.match(text, /Open Changes/);
+    const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n'); assert.match(text, /\$\(history\)/); assert.match(text, /"Open Changes"/); assert.match(text, /command:gitKitchen\.commit\.copySha/); assert.match(text, /```diff/);
     await vscode.commands.executeCommand('gitKitchen.commit.copySha', { sha }); assert.strictEqual(await vscode.env.clipboard.readText(), sha);
+  });
+  await check('blame hover actions: every command exists and runs', async () => {
+    const doc = await vscode.workspace.openTextDocument(path.join(root, 'pkg', 'z.ts')); await vscode.window.showTextDocument(doc);
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, new vscode.Position(0, 0));
+    const text = hovers.flatMap(h => h.contents.map((c: any) => c.value ?? String(c))).join('\n');
+    const links = [...text.matchAll(/\(command:(gitKitchen\.[\w.]+)(?:\?([^ )]+))?/g)].map(m => ({ id: m[1], args: m[2] ? JSON.parse(decodeURIComponent(m[2])) : [] }));
+    const ids = new Set(links.map(l => l.id)); const all = new Set(await vscode.commands.getCommands(true));
+    for (const id of ['gitKitchen.commit.copySha', 'gitKitchen.commit.copyMessage', 'gitKitchen.commit.search', 'gitKitchen.commit.reveal', 'gitKitchen.openCommitDiff', 'gitKitchen.blame.comparePrevious', 'gitKitchen.blame.openRevision', 'gitKitchen.blame.previous']) assert.ok(ids.has(id), `hover links ${id}`);
+    for (const l of links) {
+      assert.ok(all.has(l.id), `${l.id} registered`);
+      let err: any; const run = Promise.resolve(vscode.commands.executeCommand(l.id, ...l.args)).catch(e => { err = e; });
+      await Promise.race([run, new Promise(r => setTimeout(r, 1500))]);
+      for (const c of ['workbench.action.closeQuickOpen', 'workbench.action.closeAllEditors']) await vscode.commands.executeCommand(c);
+      await run; assert.strictEqual(err, undefined, `${l.id} ran: ${err?.message}`);
+    }
+    assert.match(await vscode.env.clipboard.readText(), /\S/);
   });
   await check('branch labels colored like their icons', async () => {
     const n = await t.loadBranches(); const flat: any[] = [];
@@ -305,7 +322,7 @@ export async function run() {
     try {
       const ahead = (await t.loadBranches())[0];
       assert.match(ahead.iconPath.dark.path, /branch-ahead-dark\.svg$/); assert.ok(fs.existsSync(ahead.iconPath.light.fsPath)); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).badge, undefined);
-      assert.match(String(ahead.description), /^0↓ 1↑ ⇄ syncr\/main • /); assert.match(String(ahead.tooltip), /0 behind, 1 ahead of syncr\/main \(unpushed commits\)/);
+      assert.match(String(ahead.description), /^0↓ 1↑ ⇄ syncr\/main • /); assert.match(tip(ahead), /0 behind, 1 ahead of syncr\/main \(unpushed commits\)/);
       sh(root, 'push', '-q', 'syncr', 'main'); const synced = (await t.loadBranches())[0];
       assert.match(synced.iconPath.light.path, /branch-synced-light\.svg$/); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
       await c.update('recentSyncMinutes', 0, vscode.ConfigurationTarget.Global); await new Promise(r => setTimeout(r, 1100));
@@ -315,7 +332,7 @@ export async function run() {
       sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local again'); sh(root, 'fetch', '-q', 'syncr');
       const behind = (await t.loadBranches())[0];
       assert.match(behind.iconPath.dark.path, /media\/icons\/branch-behind-dark\.svg$/); assert.match(behind.iconPath.light.path, /branch-behind-light\.svg$/); assert.ok(fs.existsSync(behind.iconPath.dark.fsPath));
-      assert.strictEqual(dec(behind).color.id, 'gitKitchen.branchBehindForeground'); assert.match(String(behind.description), /^1↓ 1↑ ⇄ syncr\/main • /); assert.match(String(behind.tooltip), /1 behind, 1 ahead of syncr\/main \(pull needed\)/);
+      assert.strictEqual(dec(behind).color.id, 'gitKitchen.branchBehindForeground'); assert.match(String(behind.description), /^1↓ 1↑ ⇄ syncr\/main • /); assert.match(tip(behind), /1 behind, 1 ahead of syncr\/main \(pull needed\)/);
       const kids = await t.loadBranches(behind);
       assert.deepStrictEqual(kids.slice(0, 4).map((k: any) => [k.label, k.iconPath?.id]), [['Incoming', 'cloud-download'], ['Outgoing', 'cloud-upload'], ['Compare main with syncr/main', 'git-compare'], ['', undefined]]);
       assert.strictEqual(kids[0].description, '1 commit to pull from syncr'); assert.strictEqual(kids[0].iconPath.color.id, 'gitKitchen.branchBehindForeground');

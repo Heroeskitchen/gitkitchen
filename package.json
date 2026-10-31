@@ -346,6 +346,60 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.commit.search",
+        "title": "Search Commits…",
+        "category": "Git Kitchen",
+        "icon": "$(search)"
+      },
+      {
+        "command": "gitKitchen.commit.copyMessage",
+        "title": "Copy Commit Message",
+        "category": "Git Kitchen",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "gitKitchen.commit.reveal",
+        "title": "Show in Commits View",
+        "category": "Git Kitchen",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "gitKitchen.commit.openOnRemote",
+        "title": "Open Commit on Remote",
+        "category": "Git Kitchen",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "gitKitchen.blame.comparePrevious",
+        "title": "Compare Working File with Previous Revision",
+        "category": "Git Kitchen",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "gitKitchen.blame.openRevision",
+        "title": "Open File at Revision",
+        "category": "Git Kitchen",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "gitKitchen.blame.previous",
+        "title": "Blame Previous Revision",
+        "category": "Git Kitchen",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitKitchen.copyText",
+        "title": "Copy",
+        "category": "Git Kitchen",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "gitKitchen.stash.applyRef",
+        "title": "Apply Stash",
+        "category": "Git Kitchen",
+        "icon": "$(check)"
+      },
+      {
         "command": "gitKitchen.commit.openOnGitHub",
         "title": "Open on GitHub",
         "category": "Git Kitchen"
@@ -1249,6 +1303,38 @@
         },
         {
           "command": "gitKitchen.commit.copySha",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.copyMessage",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.reveal",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.openOnRemote",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.blame.comparePrevious",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.blame.openRevision",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.blame.previous",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.copyText",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.applyRef",
           "when": "false"
         },
         {
