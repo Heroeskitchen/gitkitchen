@@ -361,14 +361,14 @@ export function prForBranch(prs: BranchPrInfo[], branch: string): BranchPrInfo |
   const mine = prs.filter(p => p.headRefName === branch).sort((a, b) => b.number - a.number);
   return mine.find(p => p.state === 'OPEN') ?? mine.find(p => p.state === 'MERGED');
 }
-/** Icon and state text for a branch row, by priority: active, open PR, merged, worktree, plain branch. */
+/** Icon and state text for a branch row, by priority: merged, draft PR, open PR, worktree, branch. */
 export function branchState(b: { current: boolean; pr?: BranchPrInfo; mergedInto?: string; worktree: boolean }): { icon: string; state?: string } {
-  if (b.current) return { icon: 'git-branch', state: 'Current branch' };
-  if (b.pr?.state === 'OPEN') return b.pr.isDraft ? { icon: 'git-pull-request-draft', state: `PR #${b.pr.number} draft` } : { icon: 'git-pull-request', state: `PR #${b.pr.number} open` };
-  if (b.pr?.state === 'MERGED') return { icon: 'git-merge', state: `PR #${b.pr.number} merged` };
-  if (b.mergedInto) return { icon: 'git-merge', state: `Merged into ${b.mergedInto}` };
-  if (b.worktree) return { icon: 'worktree', state: 'Checked out in a worktree' };
-  return { icon: 'git-branch' };
+  const cur = b.current ? 'Current branch' : undefined; const join = (s: string) => cur ? `${cur} · ${s}` : s;
+  if (b.pr?.state === 'MERGED') return { icon: 'git-merge', state: join(`PR #${b.pr.number} merged`) };
+  if (b.mergedInto && !b.current) return { icon: 'git-merge', state: `Merged into ${b.mergedInto}` };
+  if (b.pr?.state === 'OPEN') return b.pr.isDraft ? { icon: 'git-pull-request-draft', state: join(`PR #${b.pr.number} draft`) } : { icon: 'git-pull-request', state: join(`PR #${b.pr.number} open`) };
+  if (b.worktree && !b.current) return { icon: 'worktree', state: 'Checked out in a worktree' };
+  return { icon: 'git-branch', state: cur };
 }
 
 /** Merge chains of folders that hold exactly one folder (a, a/b, a/b/c → "a/b/c"), like a compact explorer. */
@@ -435,9 +435,55 @@ export function commitCardMarkdown(d: CommitDetails, o: { nowMs?: number; web?: 
   return `${who}, ${rel} (${date}) · ${shaPart} · ${files} · ${lines}\n\n${msg}${branches ? `\n\n$(cloud) ${branches}` : ''}`;
 }
 export const sortBranches = pinSort;
-/** Branch row description: `⇄ origin/main ↑1 ↓2 • 14 hours ago`, or `no upstream • ...`, plus any extras. */
+/** Branch row description: `⇄ origin/main • 14 hours ago`, `21↓ 0↑ ⇄ origin/main • ...` when out of sync, or `no upstream • ...`, plus any extras. */
 export function branchDescription(b: { upstream?: string; ahead?: number; behind?: number; gone?: boolean }, when: string, extras: string[] = []): string {
-  const ab = [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : '', b.gone ? 'gone' : ''].filter(Boolean).join(' ');
-  const up = b.upstream ? `⇄ ${b.upstream}${ab ? ' ' + ab : ''}` : 'no upstream';
+  const out = !b.gone && (!!b.ahead || !!b.behind);
+  const up = !b.upstream ? 'no upstream' : b.gone ? `⇄ ${b.upstream} gone` : `${out ? `${b.behind ?? 0}↓ ${b.ahead ?? 0}↑ ` : ''}⇄ ${b.upstream}`;
   return [up, when, ...extras].filter(Boolean).join(' • ');
+}
+/** Tooltip line for a branch that is out of sync with its upstream. */
+export function syncText(b: { upstream?: string; ahead?: number; behind?: number }, tone?: SyncTone): string {
+  const base = `${b.behind ?? 0} behind, ${b.ahead ?? 0} ahead of ${b.upstream}`;
+  return tone === 'behind' ? `${base} (pull needed)` : tone === 'ahead' ? `${base} (unpushed commits)` : tone === 'synced' ? `${base} (in sync, pushed or pulled recently)` : base;
+}
+export type SyncTone = 'synced' | 'ahead' | 'behind' | '';
+/** Branch sync color: red when behind (incl. diverged), yellow when only ahead, green when in sync and synced recently. */
+export function syncTone(b: { upstream?: string; ahead?: number; behind?: number; gone?: boolean }, lastSyncSec: number | undefined, nowMs: number, recentMinutes: number): SyncTone {
+  if (!b.upstream || b.gone) return '';
+  if ((b.behind ?? 0) > 0) return 'behind';
+  if ((b.ahead ?? 0) > 0) return 'ahead';
+  return lastSyncSec !== undefined && nowMs / 1000 - lastSyncSec <= recentMinutes * 60 ? 'synced' : '';
+}
+/** Parse `git reflog show -n1 --date=unix --format=%gd <ref>` (`origin/main@{1793438142}`). */
+export function parseReflogTime(out: string): number | undefined {
+  const m = /@\{(\d+)\}\s*$/.exec(out.trim()); return m ? +m[1] : undefined;
+}
+
+export function emailHash(email: string): string {
+  return require('crypto').createHash('md5').update(email.trim().toLowerCase()).digest('hex');
+}
+export function gravatarUrl(email: string): string { return `https://www.gravatar.com/avatar/${emailHash(email)}?s=32&d=404`; }
+export function initials(name: string, email = ''): string {
+  const words = (name || email.split('@')[0]).replace(/[^\p{L}\p{N}\s._-]/gu, '').split(/[\s._-]+/).filter(Boolean);
+  const s = words.length > 1 ? words[0][0] + words[words.length - 1][0] : (words[0] ?? '?').slice(0, 2);
+  return s.toUpperCase();
+}
+/** Stable hue from the email so one author keeps one color. */
+export function avatarColor(email: string): string {
+  let h = 0; for (const ch of email.trim().toLowerCase()) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+  return `hsl(${h % 360}, 55%, 45%)`;
+}
+export function initialsSvg(name: string, email: string): string {
+  const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="${avatarColor(email)}"/>`
+    + `<text x="8" y="11" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="7" font-weight="600" fill="#fff">${esc(initials(name, email))}</text></svg>`;
+}
+/** GraphQL query fetching several commit authors' avatars in one request. */
+export function avatarQuery(owner: string, repo: string, shas: string[]): string {
+  const fields = shas.map((s, i) => `c${i}: object(oid: "${s.replace(/[^0-9a-f]/gi, '')}") { ... on Commit { author { avatarUrl(size: 32) } } }`).join(' ');
+  return `query { repository(owner: "${owner}", name: "${repo}") { ${fields} } }`;
+}
+export function parseAvatarQuery(json: string, count: number): (string | undefined)[] {
+  let repo: any; try { repo = JSON.parse(json)?.data?.repository; } catch { /* bad output */ }
+  return Array.from({ length: count }, (_, i) => repo?.[`c${i}`]?.author?.avatarUrl || undefined);
 }

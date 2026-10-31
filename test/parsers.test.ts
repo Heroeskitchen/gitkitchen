@@ -251,8 +251,10 @@ describe('0.3.0 helpers', () => {
 describe('branch state icons', () => {
   const pr = (number: number, state: any, isDraft = false, headRefName = 'b'): p.BranchPrInfo => ({ number, state, isDraft, headRefName });
   it('priority: active > open PR > merged > worktree > branch', () => {
-    expect(p.branchState({ current: true, pr: pr(1, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-branch', state: 'Current branch' });
-    expect(p.branchState({ current: false, pr: pr(12, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-pull-request', state: 'PR #12 open' });
+    expect(p.branchState({ current: true, pr: pr(1, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-pull-request', state: 'Current branch · PR #1 open' });
+    expect(p.branchState({ current: true, worktree: false })).toEqual({ icon: 'git-branch', state: 'Current branch' });
+    expect(p.branchState({ current: false, pr: pr(12, 'OPEN'), mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-merge', state: 'Merged into main' });
+    expect(p.branchState({ current: false, pr: pr(12, 'OPEN'), worktree: true })).toEqual({ icon: 'git-pull-request', state: 'PR #12 open' });
     expect(p.branchState({ current: false, pr: pr(3, 'OPEN', true), worktree: false })).toEqual({ icon: 'git-pull-request-draft', state: 'PR #3 draft' });
     expect(p.branchState({ current: false, pr: pr(4, 'MERGED'), worktree: true })).toEqual({ icon: 'git-merge', state: 'PR #4 merged' });
     expect(p.branchState({ current: false, mergedInto: 'main', worktree: true })).toEqual({ icon: 'git-merge', state: 'Merged into main' });
@@ -356,7 +358,52 @@ describe('pinned sort in every view', () => {
 describe('branch description', () => {
   it('formats upstream, ahead/behind and time', () => {
     expect(p.branchDescription({ upstream: 'origin/main' }, '14 hours ago')).toBe('⇄ origin/main • 14 hours ago');
-    expect(p.branchDescription({ upstream: 'origin/x', ahead: 1, behind: 2 }, '1 day ago', ['PR #3'])).toBe('⇄ origin/x ↑1 ↓2 • 1 day ago • PR #3');
+    expect(p.branchDescription({ upstream: 'origin/x', ahead: 1, behind: 2 }, '1 day ago', ['PR #3'])).toBe('2↓ 1↑ ⇄ origin/x • 1 day ago • PR #3');
+    expect(p.branchDescription({ upstream: 'origin/main', behind: 21 }, 'now')).toBe('21↓ 0↑ ⇄ origin/main • now');
+    expect(p.syncText({ upstream: 'origin/main', behind: 21, ahead: 0 })).toBe('21 behind, 0 ahead of origin/main');
     expect(p.branchDescription({}, 'just now', ['worktree'])).toBe('no upstream • just now • worktree');
+  });
+});
+
+describe('sync tone', () => {
+  const now = 10_000_000_000;
+  it('red when behind, yellow when only ahead, green when in sync and recent', () => {
+    expect(p.syncTone({ upstream: 'o/m', behind: 2, ahead: 3 }, now / 1000, now, 60)).toBe('behind');
+    expect(p.syncTone({ upstream: 'o/m', behind: 1 }, undefined, now, 60)).toBe('behind');
+    expect(p.syncTone({ upstream: 'o/m', ahead: 1 }, now / 1000, now, 60)).toBe('ahead');
+    expect(p.syncTone({ upstream: 'o/m' }, now / 1000 - 30 * 60, now, 60)).toBe('synced');
+    expect(p.syncTone({ upstream: 'o/m' }, now / 1000 - 61 * 60, now, 60)).toBe('');
+    expect(p.syncTone({ upstream: 'o/m' }, undefined, now, 60)).toBe('');
+    expect(p.syncTone({}, now / 1000, now, 60)).toBe('');
+    expect(p.syncTone({ upstream: 'o/m', gone: true, behind: 1 }, now / 1000, now, 60)).toBe('');
+  });
+  it('reflog time and tooltip text', () => {
+    expect(p.parseReflogTime('origin/main@{1793438142}\n')).toBe(1793438142);
+    expect(p.parseReflogTime('')).toBeUndefined();
+    expect(p.syncText({ upstream: 'origin/main', behind: 21, ahead: 0 }, 'behind')).toBe('21 behind, 0 ahead of origin/main (pull needed)');
+    expect(p.syncText({ upstream: 'o/m', ahead: 2 }, 'ahead')).toBe('0 behind, 2 ahead of o/m (unpushed commits)');
+  });
+});
+
+describe('avatars', () => {
+  it('maps noreply emails straight to GitHub avatars', () => {
+    expect(p.noreplyAvatar('12345+octo@users.noreply.github.com')).toBe('https://avatars.githubusercontent.com/u/12345?s=32');
+    expect(p.noreplyAvatar('octo@users.noreply.github.com')).toBeUndefined();
+    expect(p.noreplyAvatar('a@b.com')).toBeUndefined();
+  });
+  it('gravatar uses md5 of the trimmed lowercase email with d=404', () => {
+    expect(p.gravatarUrl(' MyEmailAddress@example.com ')).toBe('https://www.gravatar.com/avatar/0bc83cb571cd1c50ba6f3e8a78ef1346?s=32&d=404');
+  });
+  it('initials svg: two letters, stable color, escaped', () => {
+    expect(p.initials('Ada Lovelace')).toBe('AL'); expect(p.initials('', 'grace.hopper@x.io')).toBe('GH'); expect(p.initials('bot')).toBe('BO'); expect(p.initials('')).toBe('?');
+    const svg = p.initialsSvg('Ada Lovelace', 'ada@x.io');
+    expect(svg).toMatch(/^<svg [^>]*viewBox="0 0 16 16"/); expect(svg).toContain('>AL</text>'); expect(svg).toContain(`fill="${p.avatarColor('ada@x.io')}"`);
+    expect(p.avatarColor('ADA@x.io')).toBe(p.avatarColor('ada@x.io')); expect(p.avatarColor('a@x.io')).not.toBe(p.avatarColor('b@x.io'));
+    expect(p.initialsSvg('<x> y', 'e')).not.toMatch(/<x>/);
+  });
+  it('batched GraphQL query and parse', () => {
+    expect(p.avatarQuery('o', 'r', ['abc1', 'def2'])).toContain('c1: object(oid: "def2")');
+    expect(p.parseAvatarQuery('{"data":{"repository":{"c0":{"author":{"avatarUrl":"https://a/u/1"}},"c1":null}}}', 2)).toEqual(['https://a/u/1', undefined]);
+    expect(p.parseAvatarQuery('nope', 1)).toEqual([undefined]);
   });
 });

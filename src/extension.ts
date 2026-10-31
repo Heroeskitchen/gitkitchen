@@ -126,10 +126,51 @@ async function commitCard(r: string, sha: string, extra = ''): Promise<vscode.Ma
 async function resolveCommitTooltip(n: Node) {
   if ((n.kind === 'commit' || n.kind === 'historyCommit') && n.data?.sha && n.data.root) { const md = await commitCard(n.data.root, n.data.sha); if (md) n.tooltip = md; }
 }
+const AVATAR_TTL_MS = 7 * 24 * 3600 * 1000;
+const avatarPending = new Map<string, { r: string; c: P.Commit }>(); const avatarDone = new Set<string>(); let avatarTimer: NodeJS.Timeout | undefined;
+function avatarDir() { const d = path.join(ctx.globalStorageUri.fsPath, 'avatars'); fs.mkdirSync(d, { recursive: true }); return d; }
+function freshFile(f: string) { try { return Date.now() - fs.statSync(f).mtimeMs < AVATAR_TTL_MS; } catch { return false; } }
+/** Commit row icon: the author's avatar from globalStorage (tree icons need a local file), else generated initials while it resolves. */
+function commitAvatar(r: string, c: P.Commit): vscode.ThemeIcon | vscode.Uri {
+  if (!c.email || !vscode.workspace.getConfiguration('gitKitchen').get('avatars', true)) return icon('git-commit');
+  const h = P.emailHash(c.email); const dir = avatarDir(); const png = path.join(dir, `${h}.png`); const svg = path.join(dir, `${h}.svg`);
+  if (freshFile(png)) return vscode.Uri.file(png);
+  if (!fs.existsSync(svg)) fs.writeFileSync(svg, P.initialsSvg(c.author, c.email));
+  if (!freshFile(`${svg}.checked`) && !avatarDone.has(h) && !avatarPending.has(h)) { avatarPending.set(h, { r, c }); avatarTimer ??= setTimeout(resolveAvatars, 300); }
+  return vscode.Uri.file(svg);
+}
+async function download(url: string, file: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) }); if (!res.ok || !/^image\//.test(res.headers.get('content-type') ?? '')) return false;
+    fs.writeFileSync(file, Buffer.from(await res.arrayBuffer())); return true;
+  } catch { return false; }
+}
+/** Noreply id, then one batched GitHub lookup per repo, then Gravatar; misses keep the initials for 7 days. */
+async function resolveAvatars() {
+  avatarTimer = undefined; const batch = [...avatarPending]; avatarPending.clear(); batch.forEach(([h]) => avatarDone.add(h));
+  const dir = avatarDir(); const urls = new Map<string, string | undefined>(batch.map(([h, { c }]) => [h, P.noreplyAvatar(c.email)]));
+  const byRepo = new Map<string, [string, P.Commit][]>();
+  for (const [h, { r, c }] of batch) if (!urls.get(h)) byRepo.set(r, [...(byRepo.get(r) ?? []), [h, c]]);
+  for (const [r, items] of byRepo) {
+    const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)$/.exec(await webUrl(r).catch(() => '') ?? ''); if (!m) continue;
+    for (let i = 0; i < items.length; i += 50) {
+      const chunk = items.slice(i, i + 50);
+      const out = await gh(r, 'api', 'graphql', '-f', `query=${P.avatarQuery(m[1], m[2], chunk.map(([, c]) => c.sha))}`).catch(() => '');
+      P.parseAvatarQuery(out, chunk.length).forEach((u, k) => { if (u) urls.set(chunk[k][0], u); });
+    }
+  }
+  let changed = false;
+  await Promise.all(batch.map(async ([h, { c }]) => {
+    const png = path.join(dir, `${h}.png`); const u = urls.get(h);
+    if ((u && await download(u, png)) || await download(P.gravatarUrl(c.email), png)) changed = true;
+    else fs.writeFileSync(path.join(dir, `${h}.svg.checked`), '');
+  }));
+  if (changed) refreshAll();
+}
 function commitNode(r: string, c: P.Commit, file?: string): Node {
   const n = new Node(c.subject, file ? 'historyCommit' : 'commit', { root: r, sha: c.sha, file, commit: c });
   n.description = `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`;
-  n.iconPath = icon('git-commit');
+  n.iconPath = commitAvatar(r, c);
   n.command = { command: 'gitKitchen.openCommitDiff', title: 'Open Changes', arguments: [{ root: r, sha: c.sha, file }] };
   return n;
 }
@@ -232,7 +273,9 @@ async function listPrs(r: string, force = false): Promise<P.PullRequest[]> {
 let selectedForCompare: string | undefined;
 let branchPrCache: { root: string; at: number; prs: P.BranchPrInfo[] } | undefined;
 /** Open and merged PRs for all branches, in one gh call, cached for a minute. */
+let mockBranchPrs: P.BranchPrInfo[] | undefined;
 async function branchPrs(r: string): Promise<P.BranchPrInfo[]> {
+  if (mockBranchPrs) return mockBranchPrs;
   if (branchPrCache && branchPrCache.root === r && Date.now() - branchPrCache.at < 60_000) return branchPrCache.prs;
   const prs = P.parseBranchPrs(await gh(r, 'pr', 'list', '--state', 'all', '--limit', '200', '--json', 'number,state,isDraft,headRefName').catch(() => '[]'));
   branchPrCache = { root: r, at: Date.now(), prs }; return prs;
@@ -251,8 +294,23 @@ function layoutNodes<T>(items: T[], nameOf: (t: T) => string, leaf: (t: T, label
   });
   return build(P.groupByPrefix(items, nameOf, byDate ? timeOf : undefined));
 }
+/** Expanded branch: incoming, outgoing, compare with upstream, a separator, then its commits. */
+async function branchChildren(n: Node): Promise<Node[]> {
+  const r = n.data.root as string; const b = n.data.branch as P.Branch; const ref = `refs/heads/${b.name}`; const out: Node[] = [];
+  const remote = b.upstream?.split('/')[0] ?? '';
+  if (b.upstream && !b.gone) {
+    const plural = (k: number) => `${k} commit${k === 1 ? '' : 's'}`;
+    if (b.behind) { const x = new Node('Incoming', 'syncGroup', { root: r, range: `${ref}..refs/remotes/${b.upstream}`, key: `in:${b.name}` }, vscode.TreeItemCollapsibleState.Collapsed); x.description = `${plural(b.behind)} to pull from ${remote}`; x.iconPath = icon('cloud-download', 'gitKitchen.branchBehindForeground'); x.id = `in:${b.name}`; out.push(x); }
+    if (b.ahead) { const x = new Node('Outgoing', 'syncGroup', { root: r, range: `refs/remotes/${b.upstream}..${ref}`, key: `out:${b.name}` }, vscode.TreeItemCollapsibleState.Collapsed); x.description = `${plural(b.ahead)} to push to ${remote}`; x.iconPath = icon('cloud-upload', 'gitKitchen.branchAheadForeground'); x.id = `out:${b.name}`; out.push(x); }
+    const c = new Node(`Compare ${b.name} with ${b.upstream}`, 'compareUpstream'); c.iconPath = icon('git-compare'); c.id = `cmp:${b.name}`;
+    c.command = { command: 'gitKitchen.branch.compareUpstream', title: 'Compare with Upstream', arguments: [n] }; out.push(c);
+    const sep = new Node('', 'separator'); sep.description = '────────── commits'; sep.id = `sep:${b.name}`; out.push(sep);
+  }
+  return [...out, ...await refCommits(r, ref, `b:${b.name}`)];
+}
 async function loadBranches(n?: Node): Promise<Node[]> {
-  if (n?.data?.branch) return refCommits(n.data.root, `refs/heads/${n.data.branch.name}`, `b:${n.data.branch.name}`);
+  if (n?.kind === 'syncGroup') return refCommits(n.data.root, n.data.range, n.data.key);
+  if (n?.data?.branch) return branchChildren(n);
   if (n) return n.data.children ?? [];
   const r = await root();
   const bs = P.parseBranches(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=${P.BRANCH_FORMAT}`, 'refs/heads'));
@@ -262,6 +320,8 @@ async function loadBranches(n?: Node): Promise<Node[]> {
   const hasMain = bs.some(b => b.name === main);
   const [statePrs, mergedOut] = await Promise.all([branchPrs(r), hasMain ? git(r, 'branch', '--merged', main, '--format=%(refname:short)').catch(() => '') : Promise.resolve('')]);
   merged = new Set(P.parseNameList(mergedOut).filter(x => x !== main)); mergedBase = main; allPrs = statePrs;
+  syncTimes.clear();
+  await Promise.all(bs.filter(b => b.upstream).map(async b => { const t = P.parseReflogTime(await git(r, 'reflog', 'show', '-n1', '--date=unix', '--format=%gd', `refs/remotes/${b.upstream}`).catch(() => '')); if (t) syncTimes.set(b.upstream!, t); }));
   await Promise.all(bs.map(async b => {
     if (b.current) return;
     let behind = b.behind;
@@ -274,9 +334,13 @@ async function loadBranches(n?: Node): Promise<Node[]> {
 }
 const fresh = new Map<string, ReturnType<typeof P.freshness>>();
 let merged = new Set<string>(); let mergedBase = 'main'; let allPrs: P.BranchPrInfo[] = [];
-const FRESH_COLOR: Record<P.Freshness, string> = { fresh: 'gitKitchen.branchFreshForeground', aging: 'gitKitchen.branchAgingForeground', stale: 'gitKitchen.branchStaleForeground' };
 const BRANCH_SCHEME = 'gitkitchen-branch';
-const BRANCH_LABEL_COLOR: Record<string, string> = { active: 'gitKitchen.activeBranchForeground', gone: 'gitKitchen.branchGoneForeground', ...FRESH_COLOR };
+const syncTimes = new Map<string, number>();
+function overlayIcon(kind: 'behind' | 'merged'): { light: vscode.Uri; dark: vscode.Uri } {
+  const f = (theme: string) => vscode.Uri.joinPath(ctx.extensionUri, 'media', 'icons', `branch-${kind}-${theme}.svg`);
+  return { light: f('light'), dark: f('dark') };
+}
+const BRANCH_LABEL_COLOR: Record<string, string> = { gone: 'gitKitchen.branchGoneForeground', synced: 'gitKitchen.branchSyncedForeground', ahead: 'gitKitchen.branchAheadForeground', behind: 'gitKitchen.branchBehindForeground' };
 const activeLabelEmitter = new vscode.EventEmitter<undefined>();
 const activeLabelDecorations: vscode.FileDecorationProvider = {
   onDidChangeFileDecorations: activeLabelEmitter.event,
@@ -284,11 +348,8 @@ const activeLabelDecorations: vscode.FileDecorationProvider = {
     if (uri.scheme === CHANGE_SCHEME) { const st = STATUS_INFO[uri.query]; return st ? { badge: uri.query, tooltip: st.tip, color: new vscode.ThemeColor(st.color), propagate: false } : undefined; }
     if (uri.scheme !== BRANCH_SCHEME) return;
     const color = BRANCH_LABEL_COLOR[uri.query]; if (!color) return;
-    const active = uri.query === 'active';
-    const colorLabel = vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true);
-    if (!colorLabel && !active) return;
-    // The active branch also gets a colored check badge at the right edge of the row.
-    return { color: colorLabel || active ? new vscode.ThemeColor(color) : undefined, badge: active ? '✓' : undefined, tooltip: active ? 'Current branch' : undefined, propagate: false };
+    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true)) return;
+    return { color: new vscode.ThemeColor(color), propagate: false };
   },
 };
 function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
@@ -299,9 +360,13 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const f = b.current ? undefined : fresh.get(b.name);
   const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
   x.tooltip = `${b.name}${b.upstream ? ' → ' + b.upstream : ''}${st.state ? '\n' + st.state : ''}\n${b.sha} ${b.subject}${b.worktreePath ? '\n' + b.worktreePath : ''}${f ? '\n' + f.reason : ''}${b.gone ? '\nupstream gone' : ''}`;
-  const tone = b.current ? 'active' : b.gone ? 'gone' : f ? f.state : '';
-  x.iconPath = icon(st.icon, BRANCH_LABEL_COLOR[tone]);
-  // The URI only carries the label color; rows keep their ThemeIcon and have no open command.
+  const mergedRow = st.icon === 'git-merge';
+  // Merged branches: default label, merge glyph with a purple dot.
+  const tone = mergedRow ? '' : b.gone ? 'gone' : P.syncTone(b, b.upstream ? syncTimes.get(b.upstream) : undefined, Date.now(), vscode.workspace.getConfiguration('gitKitchen').get('recentSyncMinutes', 60));
+  if (b.upstream && !b.gone) x.tooltip += `\n${P.syncText(b, tone === 'gone' ? undefined : tone)}`;
+  // Behind: the branch glyph with a red dot (codicons cannot be overlaid). Otherwise the codicon, tinted like the label.
+  x.iconPath = mergedRow ? overlayIcon('merged') : tone === 'behind' && st.icon === 'git-branch' ? overlayIcon('behind') : icon(st.icon, BRANCH_LABEL_COLOR[tone]);
+  // The URI only carries the label color; rows have no open command.
   x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone });
   x.id = `branch:${b.name}`; x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
   return x;
@@ -913,7 +978,7 @@ export async function activate(c: vscode.ExtensionContext) {
   cmd('gitKitchen.operation.skip', () => runOperation('skip'));
   cmd('gitKitchen.operation.abort', () => runOperation('abort'));
   c.subscriptions.push(vscode.window.registerFileDecorationProvider(activeLabelDecorations), activeLabelEmitter,
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen.branches.colorLabels')) activeLabelEmitter.fire(undefined); }));
+    vscode.workspace.onDidChangeConfiguration(e => { if ((e.affectsConfiguration('gitKitchen.branches.colorLabels') || e.affectsConfiguration('gitKitchen.recentSyncMinutes'))) activeLabelEmitter.fire(undefined); }));
   await updateRemoteContext();
   await watchGitDir();
   // Refresh trees when the repo's HEAD or refs change.
@@ -948,4 +1013,4 @@ export function deactivate() {}
 
 // Exposed for the smoke test.
 const views: Record<string, vscode.TreeView<Node>> = {};
-export const _test = { branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+export const _test = { setBranchPrs: (prs: P.BranchPrInfo[]) => { mockBranchPrs = prs; }, branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };

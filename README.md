@@ -103,7 +103,9 @@ Download or build `gitkitchen-<version>.vsix`, then run `cursor --install-extens
 | `gitKitchen.staleness.agingDays` | `14` | Days without commits before a branch counts as aging. |
 | `gitKitchen.staleness.staleDays` | `60` | Days without commits before a branch counts as stale. |
 | `gitKitchen.staleness.behindCount` | `20` | Commits behind before a branch counts as stale. |
-| `gitKitchen.branches.colorLabels` | `true` | Color branch names with the same active or freshness color as their icon. |
+| `gitKitchen.branches.colorLabels` | `true` | Color branch names like their icon: green when in sync and pushed or pulled recently, yellow with unpushed commits, red when behind (a red dot marks the icon). |
+| `gitKitchen.avatars` | `true` | Author avatars on commit rows: GitHub noreply id, then the GitHub commit author, then Gravatar, else generated initials. Cached for 7 days; off shows the commit icon. |
+| `gitKitchen.recentSyncMinutes` | `60` | How long after a push, pull or fetch an in-sync branch stays green. |
 
 ## Development
 ```sh
@@ -117,3 +119,7 @@ Built with AI-assisted development.
 
 ## License
 [MIT](LICENSE)
+
+## Third-party assets
+
+`media/icons/branch-behind-*.svg` and `branch-merged-*.svg` are derived from the `git-branch` and `git-merge` icons of [vscode-codicons](https://github.com/microsoft/vscode-codicons), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

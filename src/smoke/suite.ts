@@ -140,16 +140,17 @@ export async function run() {
   });
   const cp = require('child_process'); const fs = require('fs'); const os = require('os');
   const sh = (cwd: string, ...a: string[]) => cp.execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', ...a], { cwd }).toString();
-  await check('branch icons: active git-branch in green, freshness tints, tooltip numbers', async () => {
+  await check('branch icons: git-branch, untinted without upstream, freshness in tooltip', async () => {
     const n = await t.loadBranches();
-    assert.strictEqual(n[0].iconPath.id, 'git-branch'); assert.match(String(n[0].description), /^no upstream • /); assert.strictEqual(n[0].iconPath.color.id, 'gitKitchen.activeBranchForeground');
+    assert.strictEqual(n[0].iconPath.id, 'git-branch'); assert.match(String(n[0].description), /^no upstream • /); assert.strictEqual(n[0].iconPath.color, undefined);
     const aging = (await t.loadBranches(n.find((x: any) => x.label === 'chore')))[0];
-    assert.strictEqual(aging.iconPath.color.id, 'gitKitchen.branchAgingForeground'); assert.match(aging.tooltip, /1 behind · last commit 20d ago · aging/);
+    assert.strictEqual(aging.iconPath.color, undefined); assert.match(aging.tooltip, /1 behind · last commit 20d ago · aging/);
     const stale = (await t.loadBranches(n.find((x: any) => x.label === 'old')))[0];
-    assert.strictEqual(stale.iconPath.color.id, 'gitKitchen.branchStaleForeground'); assert.match(stale.tooltip, /last commit 90d ago · stale/);
+    assert.strictEqual(stale.iconPath.color, undefined); assert.match(stale.tooltip, /last commit 90d ago · stale/);
     const two = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[1];
-    assert.strictEqual(two.iconPath.color.id, 'gitKitchen.branchFreshForeground'); assert.match(two.tooltip, /0 behind · last commit 0d ago · fresh/);
-    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.strictEqual(one.iconPath.id, 'git-merge'); assert.match(one.tooltip, /Merged into main/);
+    assert.strictEqual(two.iconPath.color, undefined); assert.match(two.tooltip, /0 behind · last commit 0d ago · fresh/);
+    const one = (await t.loadBranches(n.find((x: any) => x.label === 'feature')))[0]; assert.match(one.iconPath.dark.path, /branch-merged-dark\.svg$/); assert.match(one.iconPath.light.path, /branch-merged-light\.svg$/); assert.ok(fs.existsSync(one.iconPath.dark.fsPath)); assert.match(one.tooltip, /Merged into main/);
+    assert.strictEqual(t.branchDecorations.provideFileDecoration(one.resourceUri, new vscode.CancellationTokenSource().token), undefined);
     assert.strictEqual(aging.iconPath.id, 'git-branch');
   });
   await check('manifest: icons, title-bar cap, danger group, colors, no activity bar', async () => {
@@ -158,7 +159,7 @@ export async function run() {
     assert.ok(Object.values(nav).every(v => v <= 3), JSON.stringify(nav));
     assert.ok(!pj.menus['view/item/context'].some((e: any) => /delete|remove|drop|abort/.test(e.command) && e.command !== 'gitKitchen.stash.drop' && String(e.group).startsWith('inline')));
     assert.ok(pj.menus['view/item/context'].filter((e: any) => /\.(delete|remove|drop)$|operation\.abort/.test(e.command) && !String(e.group).startsWith('inline')).every((e: any) => e.group.startsWith('9_danger')));
-    assert.ok(!pj.viewsContainers); assert.ok(pj.colors.some((c: any) => c.id === 'gitKitchen.branchStaleForeground' && c.defaults.dark === 'gitDecoration.ignoredResourceForeground'));
+    assert.ok(!pj.viewsContainers); assert.ok(pj.colors.some((c: any) => c.id === 'gitKitchen.branchBehindForeground' && c.defaults.dark === 'charts.red') && pj.configuration.properties['gitKitchen.recentSyncMinutes'].default === 60 && !pj.colors.some((c: any) => /Fresh|Aging|Stale|activeBranch/.test(c.id)));
     assert.strictEqual(pj.views.scm.find((v: any) => v.id === 'gitKitchen.dual').when, 'gitKitchen.multiRemote');
     assert.ok(!JSON.stringify(pj).includes('git-branch-create'));
     const inl = pj.menus['view/item/context'].filter((e: any) => e.group.startsWith('inline') && e.when.includes('gitKitchen.branches'));
@@ -248,12 +249,7 @@ export async function run() {
     const main = flat.find(x => x.data.branch.name === 'main'); const stale = flat.find(x => x.data.branch.name === 'old/stale'); const aging = flat.find(x => x.data.branch.name === 'chore/aging');
     for (const x of [main, stale, aging]) { assert.strictEqual(x.resourceUri.scheme, 'gitkitchen-branch'); assert.strictEqual(x.command, undefined); assert.ok(x.iconPath instanceof vscode.ThemeIcon); }
     const dec = (x: any) => t.branchDecorations.provideFileDecoration(x.resourceUri, new vscode.CancellationTokenSource().token);
-    assert.strictEqual(dec(main).color.id, 'gitKitchen.activeBranchForeground'); assert.strictEqual(main.iconPath.color.id, 'gitKitchen.activeBranchForeground');
-    assert.strictEqual(dec(stale).color.id, 'gitKitchen.branchStaleForeground'); assert.strictEqual(dec(stale).color.id, stale.iconPath.color.id);
-    assert.strictEqual(dec(aging).color.id, aging.iconPath.color.id); assert.strictEqual(dec(aging).badge, undefined);
-    assert.strictEqual(dec(main).badge, '✓'); assert.strictEqual(dec(main).tooltip, 'Current branch');
-    const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.colorLabels', false, vscode.ConfigurationTarget.Global);
-    assert.strictEqual(dec(main).badge, '✓'); assert.strictEqual(dec(stale), undefined); await c.update('branches.colorLabels', undefined, vscode.ConfigurationTarget.Global);
+    for (const x of [main, stale, aging]) { assert.strictEqual(dec(x), undefined); assert.strictEqual(x.iconPath.color, undefined); }
   });
   await check('stash rows: inline apply and trash; delete asks first', async () => {
     const pkg = require(path.join(__dirname, '..', '..', 'package.json'));
@@ -300,6 +296,40 @@ export async function run() {
       for (const b of ['wt/local', 'wt/remote']) { try { sh(root, 'branch', '-D', b); } catch { /* ignore */ } }
     }
   });
+  await check('sync colors: yellow ahead, red-dot red behind, green after push, default when not recent', async () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-sync-')); const other = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-sync2-'));
+    const dec = (x: any) => t.branchDecorations.provideFileDecoration(x.resourceUri, new vscode.CancellationTokenSource().token);
+    const c = vscode.workspace.getConfiguration('gitKitchen');
+    sh(bare, 'init', '-q', '--bare'); sh(root, 'remote', 'add', 'syncr', bare); sh(root, 'push', '-q', '-u', 'syncr', 'main');
+    sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local only');
+    try {
+      const ahead = (await t.loadBranches())[0];
+      assert.strictEqual(ahead.iconPath.id, 'git-branch'); assert.strictEqual(ahead.iconPath.color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).badge, undefined);
+      assert.match(String(ahead.description), /^0↓ 1↑ ⇄ syncr\/main • /); assert.match(String(ahead.tooltip), /0 behind, 1 ahead of syncr\/main \(unpushed commits\)/);
+      sh(root, 'push', '-q', 'syncr', 'main'); const synced = (await t.loadBranches())[0];
+      assert.strictEqual(synced.iconPath.color.id, 'gitKitchen.branchSyncedForeground'); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
+      await c.update('recentSyncMinutes', 0, vscode.ConfigurationTarget.Global); await new Promise(r => setTimeout(r, 1100));
+      const old = (await t.loadBranches())[0]; assert.strictEqual(old.iconPath.color, undefined); assert.strictEqual(dec(old), undefined);
+      await c.update('recentSyncMinutes', undefined, vscode.ConfigurationTarget.Global);
+      sh(other, 'clone', '-q', '-b', 'main', bare, '.'); sh(other, 'commit', '-q', '--allow-empty', '-m', 'Remote'); sh(other, 'push', '-q', 'origin', 'HEAD:main');
+      sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local again'); sh(root, 'fetch', '-q', 'syncr');
+      const behind = (await t.loadBranches())[0];
+      assert.match(behind.iconPath.dark.path, /media\/icons\/branch-behind-dark\.svg$/); assert.match(behind.iconPath.light.path, /branch-behind-light\.svg$/); assert.ok(fs.existsSync(behind.iconPath.dark.fsPath));
+      assert.strictEqual(dec(behind).color.id, 'gitKitchen.branchBehindForeground'); assert.match(String(behind.description), /^1↓ 1↑ ⇄ syncr\/main • /); assert.match(String(behind.tooltip), /1 behind, 1 ahead of syncr\/main \(pull needed\)/);
+      const kids = await t.loadBranches(behind);
+      assert.deepStrictEqual(kids.slice(0, 4).map((k: any) => [k.label, k.iconPath?.id]), [['Incoming', 'cloud-download'], ['Outgoing', 'cloud-upload'], ['Compare main with syncr/main', 'git-compare'], ['', undefined]]);
+      assert.strictEqual(kids[0].description, '1 commit to pull from syncr'); assert.strictEqual(kids[0].iconPath.color.id, 'gitKitchen.branchBehindForeground');
+      assert.strictEqual(kids[1].description, '1 commit to push to syncr'); assert.strictEqual(kids[1].iconPath.color.id, 'gitKitchen.branchAheadForeground');
+      assert.strictEqual(kids[2].command.command, 'gitKitchen.branch.compareUpstream'); assert.strictEqual(kids[3].contextValue, 'separator');
+      assert.deepStrictEqual((await t.loadBranches(kids[0])).map((k: any) => k.label), ['Remote']); assert.deepStrictEqual((await t.loadBranches(kids[1])).map((k: any) => k.label), ['Local again']);
+      assert.strictEqual(kids[4].label, 'Local again'); assert.ok(kids[4].iconPath instanceof vscode.Uri && fs.existsSync(kids[4].iconPath.fsPath), 'commit avatar file');
+      await c.update('avatars', false, vscode.ConfigurationTarget.Global); assert.strictEqual((await t.loadBranches(behind))[4].iconPath.id, 'git-commit'); await c.update('avatars', undefined, vscode.ConfigurationTarget.Global);
+      await c.update('branches.colorLabels', false, vscode.ConfigurationTarget.Global); assert.strictEqual(dec(behind), undefined);
+    } finally {
+      await c.update('branches.colorLabels', undefined, vscode.ConfigurationTarget.Global); await c.update('recentSyncMinutes', undefined, vscode.ConfigurationTarget.Global);
+      sh(root, 'reset', '-q', '--hard', 'HEAD~2'); sh(root, 'branch', '--unset-upstream'); sh(root, 'remote', 'remove', 'syncr');
+    }
+  });
   if (process.env.GK_SHOTS) await screenshots(t, root);
   console.log('\n===== GIT KITCHEN SMOKE =====\n' + results.join('\n') + '\n========================');
   if (results.some(r => r.startsWith('FAIL'))) throw new Error('smoke failures');
@@ -315,7 +345,26 @@ async function screenshots(t: any, root: string) {
   sh(root, 'checkout', '-qb', 'shot/conflict'); fs.writeFileSync(path.join(root, 'pkg', 'z.ts'), 'theirs\n'); sh(root, 'commit', '-qam', 'Conflicting change');
   sh(root, 'checkout', '-q', 'main'); fs.writeFileSync(path.join(root, 'pkg', 'z.ts'), 'ours\n'); sh(root, 'commit', '-qam', 'Our change');
   fs.writeFileSync(path.join(root, 'notes.md'), 'draft\n'); sh(root, 'add', 'notes.md'); sh(root, 'stash', 'push', '-m', 'WIP notes');
-  const fresh = sh(root, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Fresh work').trim(); sh(root, 'branch', 'feat/fresh', fresh);
+  const originDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gk-shot-origin-')); sh(originDir, 'init', '-q', '--bare');
+  try { sh(root, 'remote', 'remove', 'origin'); } catch { /* none */ }
+  sh(root, 'remote', 'add', 'origin', originDir); sh(root, 'push', '-q', 'origin', 'HEAD~1:refs/heads/main'); sh(root, 'fetch', '-q', 'origin'); sh(root, 'branch', '--set-upstream-to', 'origin/main');
+  const fresh = sh(root, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Fresh work').trim(); sh(root, 'branch', 'feat/fresh', fresh); sh(root, 'push', '-q', '-u', 'origin', 'feat/fresh'); const remoteWork = sh(root, 'commit-tree', `${fresh}^{tree}`, '-p', fresh, '-m', 'Remote work').trim(); sh(root, 'push', '-q', 'origin', `${remoteWork}:refs/heads/feat/fresh`); sh(root, 'branch', 'feat/synced', fresh); sh(root, 'push', '-q', '-u', 'origin', 'feat/synced'); sh(root, 'fetch', '-q', 'origin');
+  // One branch per status for the status gallery.
+  const base = sh(root, 'rev-parse', 'HEAD').trim(); let n = 0;
+  const mk = (parent = base) => sh(root, 'commit-tree', `${parent}^{tree}`, '-p', parent, '-m', `Status ${++n}`).trim();
+  const st = (name: string, sha: string) => { sh(root, 'branch', '-f', `status/${name}`, sha); return `status/${name}`; };
+  const pushU = (b: string, sha: string) => { sh(root, 'push', '-q', '-f', 'origin', `${sha}:refs/heads/${b}`); sh(root, 'fetch', '-q', 'origin'); sh(root, 'branch', `--set-upstream-to=origin/${b}`, b); };
+  { const c = mk(); pushU(st('synced', c), c); }
+  { const c = mk(); const b = st('ahead', mk(c)); pushU(b, c); sh(root, 'branch', '-f', b, sh(root, 'commit-tree', `${c}^{tree}`, '-p', c, '-m', 'Unpushed').trim()); }
+  { const c = mk(); const b = st('behind', c); pushU(b, c); sh(root, 'push', '-q', '-f', 'origin', `${mk(c)}:refs/heads/${b}`); sh(root, 'fetch', '-q', 'origin'); }
+  { const c = mk(); const b = st('diverged', c); pushU(b, c); sh(root, 'push', '-q', '-f', 'origin', `${mk(c)}:refs/heads/${b}`); sh(root, 'fetch', '-q', 'origin'); sh(root, 'branch', '-f', b, mk(c)); }
+  st('no-upstream', mk());
+  { const c = mk(); const b = st('upstream-gone', c); pushU(b, c); sh(root, 'push', '-q', 'origin', '--delete', b); sh(root, 'fetch', '-q', '--prune', 'origin'); }
+  st('open-pr', mk()); st('draft-pr', mk()); st('merged', `${base}~1`);
+  { const b = st('worktree', mk()); sh(root, 'worktree', 'add', '-q', fs.mkdtempSync(path.join(require('os').tmpdir(), 'gk-wt-')), b); }
+  await t.setBranchPrs([{ number: 41, state: 'OPEN', isDraft: false, headRefName: 'status/open-pr' }, { number: 42, state: 'OPEN', isDraft: true, headRefName: 'status/draft-pr' }]);
+  // Active branch behind (and ahead of) its upstream.
+  sh(root, 'push', '-q', '-f', 'origin', `${mk(base)}:refs/heads/main`); sh(root, 'fetch', '-q', 'origin');
   try { sh(root, 'merge', 'shot/conflict'); } catch { /* conflict expected */ }
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   try { execFileSync('xdotool', ['search', '--onlyvisible', '--class', 'code', 'windowmove', '0', '0', 'windowsize', '1600', '1400']); } catch { /* best effort */ }
@@ -329,8 +378,11 @@ async function screenshots(t: any, root: string) {
   await vscode.commands.executeCommand('gitKitchen.commits.focus'); await vscode.commands.executeCommand('gitKitchen.stashes.focus'); await vscode.commands.executeCommand('gitKitchen.branches.focus');
   await vscode.commands.executeCommand('gitKitchen.refresh'); await wait(1500);
   const bv = t.views['gitKitchen.branches']; const top = await t.loadBranches();
-    for (const f of top.filter((x: any) => x.contextValue === 'branchFolder')) { try { await bv.reveal(f, { expand: true }); } catch { /* ignore */ } }
-  try { await bv.reveal(top[0], { select: true, focus: true }); } catch { /* ignore */ }
+    const gallery = !!process.env.GK_STATUS;
+    for (const f of top.filter((x: any) => x.contextValue === 'branchFolder' && (!gallery || x.label === 'status'))) { try { await bv.reveal(f, { expand: true }); } catch { /* ignore */ } }
+    if (gallery) { await wait(1000); const sf = top.find((x: any) => x.label === 'status'); const dv = sf && (await t.loadBranches(sf)).find((x: any) => x.label === 'diverged'); if (dv) { try { await bv.reveal(dv, { expand: true }); } catch { /* ignore */ } } }
+  try { await bv.reveal(top[0], { select: true, focus: true, expand: !process.env.GK_STATUS }); } catch { /* ignore */ }
+  await wait(1500);
   for (const [name, theme] of [['scm-dark', 'Default Dark Modern'], ['scm-light', 'Default Light Modern']]) {
     await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Global); await wait(2500);
     try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
