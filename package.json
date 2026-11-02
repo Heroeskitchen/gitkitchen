@@ -776,42 +776,42 @@
         {
           "command": "gitKitchen.worktree.openForBranch",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.worktree\\b/ && viewItem =~ /^branch(?!\\.current)/",
-          "group": "6_wt@1"
+          "group": "1_wt@1"
         },
         {
           "command": "gitKitchen.worktree.createFromRemote",
           "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
-          "group": "6_wt@1"
+          "group": "1_wt@1"
         },
         {
           "command": "gitKitchen.worktree.create",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /noWorktree/ && viewItem =~ /^branch(?!\\.current)/",
-          "group": "6_wt@1"
+          "group": "1_wt@1"
         },
         {
           "command": "gitKitchen.worktree.createNewBranch",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/",
-          "group": "6_wt@2"
+          "group": "1_wt@2"
         },
         {
           "command": "gitKitchen.worktree.openNewWindow",
           "when": "(view == gitKitchen.worktrees && viewItem =~ /^worktree/) || (view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.worktree/)",
-          "group": "6_wt@3"
+          "group": "1_wt@3"
         },
         {
           "command": "gitKitchen.worktree.openHere",
           "when": "(view == gitKitchen.worktrees && viewItem =~ /^worktree/) || (view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.worktree/)",
-          "group": "6_wt@4"
+          "group": "1_wt@4"
         },
         {
           "command": "gitKitchen.worktree.reveal",
           "when": "(view == gitKitchen.worktrees && viewItem =~ /^worktree/) || (view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.worktree/)",
-          "group": "6_wt@5"
+          "group": "1_wt@5"
         },
         {
           "command": "gitKitchen.worktree.terminal",
           "when": "(view == gitKitchen.worktrees && viewItem =~ /^worktree/) || (view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.worktree/)",
-          "group": "6_wt@6"
+          "group": "1_wt@6"
         },
         {
           "command": "gitKitchen.worktree.lock",
