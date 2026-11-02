@@ -517,7 +517,7 @@ export function messageMarkdown(message: string, web?: string): string {
 export function prNumberFromMessage(message: string): number | undefined {
   const m = /\(#(\d+)\)|Merge pull request #(\d+)/.exec(message); return m ? +(m[1] ?? m[2]) : undefined;
 }
-/** Editor blame hover in the GitLens layout. */
+/** Editor blame hover card. */
 export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?: string; nowMs?: number; dateText?: string; root: string; file?: string; line?: number; hunk?: string }): string {
   const sha = d.sha.slice(0, 7); const at = { root: o.root, sha: d.sha };
   const who = `${o.avatar ? `<img src="${o.avatar}" width="16" height="16"/> ` : '$(account) '}**${escapeMd(d.author)}**${o.web ? ' $(github)' : ''}`;
