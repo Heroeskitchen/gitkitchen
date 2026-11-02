@@ -288,23 +288,61 @@ export function sameCommitLines(lines: BlameLine[], line: number): number[] {
   return lines.filter(l => l.sha === cur.sha && l.line !== line).map(l => l.line);
 }
 
-/** From a unified diff of one file, return the hunk (header and body) whose new side contains `newLine`. */
-export function hunkForLine(diff: string, newLine: number): string | undefined {
-  const lines = diff.split('\n'); let cur: string[] | undefined; let hit = false;
-  for (const l of lines) {
-    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
-    if (m) {
-      if (cur && hit) break;
-      const start = +m[1]; const count = m[2] === undefined ? 1 : +m[2];
-      cur = [l]; hit = newLine >= start && newLine < start + Math.max(count, 1);
-    } else if (cur && !l.startsWith('\\')) {
-      if (/^(diff |index |--- |\+\+\+ )/.test(l) && !hit) { cur = undefined; continue; }
-      if (/^[ +-]/.test(l) || l === '') cur.push(l);
+export interface DiffSlice { text: string; total: number; hidden: number }
+interface DiffRow { text: string; newNo?: number; at: number }
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+const DIFF_BOUNDARY = /^(diff |index |--- |\+\+\+ |new file |deleted file |similarity |rename |Binary )/;
+/** Changed +/- lines nearest `newLine`: one contiguous run, no @@ header and no context. At most 6 lines, or the whole run when it is 7–10 lines. */
+export function diffSliceForLine(diff: string, newLine: number): DiffSlice | undefined {
+  const lines = diff.split('\n');
+  let best: { rows: DiffRow[]; dist: number } | undefined;
+  let i = 0;
+  while (i < lines.length) {
+    const m = HUNK_HEADER.exec(lines[i]);
+    if (!m) { i++; continue; }
+    const newStart = +m[3]; const newCount = m[4] === undefined ? 1 : +m[4];
+    const covers = newLine >= newStart && newLine < newStart + Math.max(newCount, 1);
+    const runs: DiffRow[][] = []; let rows: DiffRow[] = []; let n = newStart;
+    i++;
+    while (i < lines.length && !lines[i].startsWith('@@') && !DIFF_BOUNDARY.test(lines[i])) {
+      const l = lines[i++];
+      if (l.startsWith('\\') || l === '') continue;
+      if (l.startsWith('+')) { rows.push({ text: l, newNo: n, at: n }); n++; }
+      else if (l.startsWith('-')) rows.push({ text: l, at: n });
+      else if (l.startsWith(' ')) { if (rows.length) { runs.push(rows); rows = []; } n++; }
+      else { i--; break; }
+    }
+    if (rows.length) runs.push(rows);
+    if (!covers) continue;
+    for (const run of runs) {
+      let dist = Infinity;
+      for (const r of run) { if (r.newNo === newLine) { dist = 0; break; } dist = Math.min(dist, Math.abs((r.newNo ?? r.at) - newLine)); }
+      if (!best || dist < best.dist) best = { rows: run, dist };
     }
   }
-  if (!cur || !hit) return undefined;
-  while (cur.length > 1 && cur[cur.length - 1] === '') cur.pop();
-  return cur.join('\n');
+  if (!best) return undefined;
+  const shown = capDiffRows(best.rows, newLine);
+  return { text: shown.map(r => r.text).join('\n'), total: best.rows.length, hidden: best.rows.length - shown.length };
+}
+function capDiffRows(rows: DiffRow[], newLine: number): DiffRow[] {
+  const cap = rows.length <= 10 ? rows.length : 6;
+  if (rows.length <= cap) return rows;
+  let idx = rows.findIndex(r => r.newNo === newLine);
+  if (idx < 0) {
+    let bestD = Infinity;
+    rows.forEach((r, i) => {
+      const d = Math.abs((r.newNo ?? r.at) - newLine);
+      if (d < bestD || (d === bestD && (r.newNo ?? r.at) <= newLine)) { idx = i; bestD = d; }
+    });
+  }
+  let start = idx - Math.floor((cap - 1) / 2);
+  if (start < 0) start = 0;
+  if (start + cap > rows.length) start = rows.length - cap;
+  return rows.slice(start, start + cap);
+}
+/** Changed lines from the hunk covering `newLine`, capped the same way as the blame hover. */
+export function hunkForLine(diff: string, newLine: number): string | undefined {
+  return diffSliceForLine(diff, newLine)?.text;
 }
 
 /** Status bar text for a blamed line. */
@@ -514,41 +552,145 @@ export function mdCard(c: { title: string; icon?: string; avatar?: string; statu
   if (c.actions?.length) out.push('---', actionBar(c.actions));
   return out.join('\n\n');
 }
-/** A commit message as markdown: HTML neutralized, #123 linked, Co-authored-by lines as mailto links. */
+const CO_AUTHOR_ESCAPED = /^Co-authored-by:[ \t]*(.+?)[ \t]*&lt;([^&\s]+@[^&\s]+)&gt;[ \t]*$/i;
+const CO_AUTHOR_RAW = /^Co-authored-by:[ \t]*(.+?)[ \t]*<([^>\s]+@[^>\s]+)>[ \t]*$/i;
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
+function escapeHtml(s: string): string { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function isRuleLine(line: string): boolean {
+  const compact = line.trim().replace(/[ \t]/g, '');
+  return compact.length > 0 && (/^-+$/.test(compact) || /^=+$/.test(compact));
+}
+/** A GitHub login: letters, digits, and single hyphens, not all digits. */
+export function githubLogin(name: string | undefined): string | undefined {
+  const login = name?.trim();
+  return login && GITHUB_LOGIN.test(login) && !/^\d+$/.test(login) ? login : undefined;
+}
+/** GitHub login from `id+login@users.noreply.github.com` or `login@users.noreply.github.com`. */
+export function githubLoginFromEmail(email: string): string | undefined {
+  const m = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})@users\.noreply\.github\.com$/i.exec(email.trim());
+  return githubLogin(m?.[1]);
+}
+function githubProfile(email: string, web?: string, login?: string): string | undefined {
+  if (!web || !/^https:\/\/github\.com\//i.test(web)) return;
+  const name = githubLoginFromEmail(email) ?? githubLogin(login);
+  return name ? `https://github.com/${name}` : undefined;
+}
+/** Local long date: `October 12th, 2026 11:10 AM`. */
+export function longDate(sec: number): string {
+  const d = new Date(sec * 1000);
+  const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(d);
+  const day = d.getDate();
+  const n = day % 100;
+  const suf = n >= 11 && n <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10] || 'th';
+  const year = d.getFullYear();
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(d).replace(/[\u202f\u00a0]/g, ' ');
+  return `${month} ${day}${suf}, ${year} ${time}`;
+}
+export interface CoAuthor { name: string; email: string }
+/** Unique co-authors in first-seen order. Trailing spaces stop at the end of the line. */
+export function coAuthors(message: string): CoAuthor[] {
+  const seen = new Set<string>(); const out: CoAuthor[] = [];
+  for (const line of message.split('\n')) {
+    const m = CO_AUTHOR_RAW.exec(line.replace(/\r$/, '')); if (!m) continue;
+    const key = m[2].toLowerCase(); if (seen.has(key)) continue;
+    seen.add(key); out.push({ name: m[1].trim(), email: m[2] });
+  }
+  return out;
+}
+const muted = (inner: string) => `<span style="color:var(--vscode-descriptionForeground);">${inner}</span>`;
+const GROUP_SEP = `&nbsp;&nbsp;${muted('|')}&nbsp;&nbsp;`;
+function greyIconLink(icon: string, tip: string, command: string, args?: unknown): string {
+  return `[${muted(`<span class="codicon codicon-${icon}"></span>`)}](${cmdUri(command, args)} "${tip.replace(/"/g, "'")}")`;
+}
+/** A commit message as markdown. HTML is neutralized and `#123` is linked. The first line is bold when that stays one phrase and not a heading. Co-author trailers are removed, and a line of only dashes or equals signs is dropped so it cannot become a setext heading or a rule. */
 export function messageMarkdown(message: string, web?: string): string {
   const safe = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const co = safe.replace(/^(Co-authored-by:\s*)(.+?)\s*&lt;([^&\s]+@[^&\s]+)&gt;\s*$/gim, (_m, k, name, mail) => `${k}[${name}](mailto:${mail})`);
-  return linkPrRefs(co, web).split('\n').map(l => l.replace(/\s+$/, '')).join('  \n').replace(/ {2}\n {2}\n/g, '\n\n');
+  const kept = safe.split('\n').map(l => l.replace(/\r$/, '')).filter(l => !CO_AUTHOR_ESCAPED.test(l) && !isRuleLine(l));
+  const paragraphs = kept.join('\n').split(/\n{2,}/).map(p => p.split('\n').map(l => l.replace(/[ \t]+$/, '')).filter(l => l.length > 0).join('  \n')).filter(Boolean);
+  return emphasizeSubject(linkPrRefs(paragraphs.join('\n\n'), web));
+}
+/** Bold the first line only. A blank line, or one whose markers would not stay a single bold phrase, stays plain and is never a heading. */
+function emphasizeSubject(md: string): string {
+  if (!md) return md;
+  const nl = md.indexOf('\n');
+  const first = nl < 0 ? md : md.slice(0, nl);
+  const rest = nl < 0 ? '' : md.slice(nl);
+  const subject = first.replace(/[ \t]+$/, '');
+  const styled = boldSubject(subject);
+  return styled + first.slice(subject.length) + rest;
+}
+function boldSubject(line: string): string {
+  if (!line.trim() || breaksBold(line)) return line.replace(/^(#{1,6})(?=[ \t]|$)/, '\\$1');
+  return `**${line}**`;
+}
+function breaksBold(line: string): boolean {
+  if (/^\s|\s$/.test(line) || line.includes('**')) return true;
+  if (line.startsWith('*') || line.endsWith('*') || line.startsWith('_') || line.endsWith('_')) return true;
+  return (line.split('`').length - 1) % 2 !== 0;
+}
+/** Italics inside a muted span. VS Code's markdown parser treats `*` between inline tags as emphasis. */
+function em(text: string): string { return `*${text.replace(/[\\*_`]/g, c => '\\' + c)}*`; }
+function coAuthorLine(message: string): string | undefined {
+  const authors = coAuthors(message); if (!authors.length) return;
+  const title = authors.map(a => `${a.name} <${a.email}>`).join(', ').replace(/"/g, "'");
+  const label = authors.length === 1 ? `+ ${escapeHtml(authors[0].name)}` : `+${authors.length} co-authors`;
+  return `[${muted(em(label))}](mailto:${authors[0].email} "${title}")`;
+}
+function shaChip(sha: string, tip: string, command: string, args: unknown): string {
+  return actionLink({ icon: 'git-commit', label: `\`${sha}\``, tip, command, args });
 }
 export function prNumberFromMessage(message: string): number | undefined {
   const m = /\(#(\d+)\)|Merge pull request #(\d+)/.exec(message); return m ? +(m[1] ?? m[2]) : undefined;
 }
-/** Editor blame hover in the GitLens layout. */
-export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?: string; nowMs?: number; dateText?: string; root: string; file?: string; line?: number; hunk?: string }): string {
+/** Blame hover: author, full message, folded co-authors, pull request, actions, then the changed lines around the blamed line. */
+export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?: string; login?: string; nowMs?: number; dateText?: string; root: string; file?: string; line?: number; hunk?: string; hunkHidden?: number; diff?: string; origLine?: number }): string {
   const sha = d.sha.slice(0, 7); const at = { root: o.root, sha: d.sha };
-  const who = `${o.avatar ? `<img src="${o.avatar}" width="16" height="16"/> ` : '$(account) '}**${escapeMd(d.author)}**${o.web ? ' $(github)' : ''}`;
-  const when = `$(history) ${relativeTime(d.time, o.nowMs)} (${o.dateText ?? new Date(d.time * 1000).toLocaleString()})`;
-  const copy = `<span style="float:right;">${actionLink({ icon: 'copy', tip: 'Copy SHA', command: 'gitKitchen.commit.copySha', args: { sha: d.sha } })}</span>`;
-  const parts = [`${who}&nbsp;&nbsp;${when}${copy}`, messageMarkdown(d.message, o.web)];
-  const pr = prNumberFromMessage(d.message);
-  if (pr && o.web) parts.push(`$(git-pull-request) [GitHub Issue or Pull Request #${pr}](${o.web}/pull/${pr})`);
   const fa = { ...at, file: o.file, line: o.line };
-  const actions: CardAction[] = [
-    { icon: 'git-commit', label: sha, tip: 'Copy SHA', command: 'gitKitchen.commit.copySha', args: { sha: d.sha } },
-    { icon: 'copy', tip: 'Copy Message', command: 'gitKitchen.commit.copyMessage', args: at },
-    ...(o.web ? [{ icon: 'globe', tip: 'Open Commit on Remote', command: 'gitKitchen.commit.openOnRemote', args: at }] : []),
-    { icon: 'search', tip: 'Search Commits by This SHA', command: 'gitKitchen.commit.search', args: { ...at, direct: true } },
-    { icon: 'list-tree', tip: 'Show in Commits View', command: 'gitKitchen.commit.reveal', args: at },
-    ...(o.file ? [
-      { icon: 'git-compare', tip: 'Open Changes for This File', command: 'gitKitchen.openCommitDiff', args: { ...at, file: o.file } },
-      { icon: 'files', tip: 'Open All Changes in Commit', command: 'gitKitchen.openCommitDiff', args: at },
-      { icon: 'diff', tip: 'Compare Working File with Previous Revision', command: 'gitKitchen.blame.comparePrevious', args: fa },
-      { icon: 'file-code', tip: 'Open File at This Revision', command: 'gitKitchen.blame.openRevision', args: fa },
-      { icon: 'history', tip: 'Blame Previous Revision', command: 'gitKitchen.blame.previous', args: fa },
-    ] : [{ icon: 'git-compare', tip: 'Open Changes', command: 'gitKitchen.openCommitDiff', args: at }]),
-  ];
-  parts.push('---', actionBar(actions), '---');
-  if (o.hunk) parts.push('```diff\n' + o.hunk + '\n```', `Changes added in ${actionLink({ icon: 'git-commit', label: sha, tip: 'Open Changes', command: 'gitKitchen.openCommitDiff', args: { ...at, file: o.file } })}`);
+  const fileArgs = o.file ? { ...at, file: o.file } : at;
+  const profile = githubProfile(d.email, o.web, o.login);
+  const name = escapeMd(d.author);
+  const who = profile ? `[**${name}**](${profile})` : `**${name}**`;
+  const avatar = o.avatar ? `<img src="${o.avatar}" width="24" height="24"/> ` : '';
+  const date = o.dateText ?? longDate(d.time);
+  const rel = escapeHtml(relativeTime(d.time, o.nowMs));
+  const parts = [`${avatar}${who} ${muted('$(history)')} ${muted(em(rel))} ${muted(escapeHtml(date))}`];
+  const msg = messageMarkdown(d.message, o.web); if (msg) parts.push(msg);
+  const co = coAuthorLine(d.message); if (co) parts.push(co);
+  const pr = prNumberFromMessage(d.message);
+  if (pr && o.web) parts.push(`$(link) [Pull request #${pr}](${o.web}/pull/${pr})`);
+  const gap = '&nbsp;&nbsp;';
+  const changes = [
+    greyIconLink('compare-changes', o.file ? 'Open Changes for This File' : 'Open Changes', 'gitKitchen.openCommitDiff', fileArgs),
+    ...(o.file ? [greyIconLink('diff-multiple', 'Open All Changes in Commit', 'gitKitchen.openCommitDiff', at)] : []),
+  ].join(gap);
+  const revisions = o.file ? [
+    greyIconLink('diff', 'Compare Working File with Previous Revision', 'gitKitchen.blame.comparePrevious', fa),
+    greyIconLink('history', 'Blame Previous Revision', 'gitKitchen.blame.previous', fa),
+    greyIconLink('file-code', 'Open File at This Revision', 'gitKitchen.blame.openRevision', fa),
+  ].join(gap) : '';
+  const nav = [
+    greyIconLink('list-tree', 'Show in Commits View', 'gitKitchen.commit.reveal', at),
+    greyIconLink('search', 'Search Commits by This SHA', 'gitKitchen.commit.search', { ...at, direct: true }),
+    ...(o.web ? [greyIconLink('globe', 'Open Commit on Remote', 'gitKitchen.commit.openOnRemote', at)] : []),
+  ].join(gap);
+  const bar = [
+    shaChip(sha, 'Copy SHA', 'gitKitchen.commit.copySha', { sha: d.sha }),
+    greyIconLink('copy', 'Copy Message', 'gitKitchen.commit.copyMessage', at),
+    changes, revisions, nav,
+  ].filter(Boolean).join(GROUP_SEP);
+  parts.push('---', bar, '---');
+  let hunk = o.hunk; let hidden = o.hunkHidden ?? 0;
+  if (o.diff !== undefined && o.origLine) {
+    const slice = diffSliceForLine(o.diff, o.origLine);
+    hunk = slice?.text; hidden = slice?.hidden ?? 0;
+  }
+  if (hunk) {
+    parts.push('```diff\n' + hunk + '\n```');
+    if (hidden > 0) parts.push(`[${muted(`… ${hidden} more lines · $(diff) Open full diff`)}](${cmdUri('gitKitchen.openCommitDiff', fileArgs)} "Open full diff")`);
+    let foot = `${muted('Changes added in')} ${shaChip(sha, 'Open Changes', 'gitKitchen.openCommitDiff', fileArgs)}`;
+    if (o.file) foot += `${GROUP_SEP}${greyIconLink('compare-changes', 'Compare with Previous', 'gitKitchen.blame.comparePrevious', fa)}`;
+    parts.push(foot);
+  }
   return parts.join('\n\n');
 }
 export function branchCardMarkdown(b: Branch, o: { state?: string; syncText?: string; freshness?: string; when?: string; avatar?: string; author?: string; pr?: { number: number; state: string; url?: string }; root: string }): string {
