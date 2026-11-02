@@ -107,12 +107,15 @@ class Tree implements vscode.TreeDataProvider<Node> {
 const trees: Tree[] = [];
 function refreshAll() { trees.forEach(t => t.refresh()); }
 function icon(id: string, color?: string) { return new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined); }
-const cardCache = new Map<string, Promise<{ d?: P.CommitDetails; avatar?: string; branches: string[]; web?: string }>>();
-async function avatarFor(r: string, web: string | undefined, d: P.CommitDetails): Promise<string | undefined> {
-  const quick = P.noreplyAvatar(d.email); if (quick) return quick;
-  const m = web && /^https:\/\/github\.com\/([^/]+\/[^/]+)$/.exec(web); if (!m) return;
-  const url = (await Promise.race([gh(r, 'api', `repos/${m[1]}/commits/${d.sha}`, '--jq', '.author.avatar_url // empty').catch(() => ''), new Promise<string>(res => setTimeout(() => res(''), 2500))])).trim();
-  return url ? `${url}${url.includes('?') ? '&' : '?'}s=32` : undefined;
+const cardCache = new Map<string, Promise<{ d?: P.CommitDetails; avatar?: string; login?: string; branches: string[]; web?: string }>>();
+async function authorIdentity(r: string, web: string | undefined, d: P.CommitDetails): Promise<{ avatar?: string; login?: string }> {
+  const login = P.githubLoginFromEmail(d.email); const quick = P.noreplyAvatar(d.email);
+  const m = web && /^https:\/\/github\.com\/([^/]+\/[^/]+)$/.exec(web);
+  if (!m || (quick && login)) return { avatar: quick, login };
+  const raw = (await Promise.race([gh(r, 'api', `repos/${m[1]}/commits/${d.sha}`, '--jq', '[.author.login // "", .author.avatar_url // ""] | @tsv').catch(() => ''), new Promise<string>(res => setTimeout(() => res(''), 2500))])).trim();
+  const tab = raw.indexOf('\t'); const apiLogin = (tab < 0 ? '' : raw.slice(0, tab)).trim(); const avatarUrl = (tab < 0 ? raw : raw.slice(tab + 1)).trim();
+  const avatar = quick ?? (avatarUrl ? `${avatarUrl}${avatarUrl.includes('?') ? '&' : '?'}s=32` : undefined);
+  return { avatar, login: login ?? P.githubLogin(apiLogin) };
 }
 /** Commit details for hovers and tooltips: one `git show` per sha, cached. */
 function commitInfo(r: string, sha: string) {
@@ -125,7 +128,8 @@ function commitInfo(r: string, sha: string) {
         webUrl(r).catch(() => undefined)]);
       const d = P.parseCommitDetails(out);
       const gh = web && /^https:\/\/github\.com\//.test(web) ? web : undefined;
-      return { d, web: gh, branches: P.parseNameList(br).filter(b => !b.endsWith('/HEAD')), avatar: d ? await avatarFor(r, gh, d) : undefined };
+      const who: { avatar?: string; login?: string } = d ? await authorIdentity(r, gh, d) : {};
+      return { d, web: gh, branches: P.parseNameList(br).filter(b => !b.endsWith('/HEAD')), avatar: who.avatar, login: who.login };
     })();
     cardCache.set(key, p); if (cardCache.size > 500) cardCache.delete(cardCache.keys().next().value!);
   }
@@ -653,13 +657,12 @@ const hoverProvider: vscode.HoverProvider = {
     const file = bl.filename || rel(b.r, doc.fileName);
     const ed = vscode.window.visibleTextEditors.find(e => e.document === doc);
     if (ed) setSameCommit(ed, b.lines, pos.line + 1);
-    let hunk = '';
+    let diff = '';
     if (vscode.workspace.getConfiguration('gitKitchen').get('blame.changesHover', true) && bl.origLine) {
-      const d = await git(b.r, 'show', '--format=', '--no-color', '--no-ext-diff', '-U3', bl.sha, '--', file).catch(() => '');
-      hunk = (P.hunkForLine(d, bl.origLine) ?? '').split('\n').slice(0, 40).join('\n');
+      diff = await git(b.r, 'show', '--format=', '--no-color', '--no-ext-diff', '-U3', bl.sha, '--', file).catch(() => '');
     }
     const info = await commitInfo(b.r, bl.sha);
-    const text = info.d ? P.blameHoverMarkdown(info.d, { avatar: info.avatar ?? avatarData(b.r, info.d.author, info.d.email), web: info.web, root: b.r, file, line: bl.line, hunk: hunk || undefined })
+    const text = info.d ? P.blameHoverMarkdown(info.d, { avatar: info.avatar ?? avatarData(b.r, info.d.author, info.d.email), web: info.web, login: info.login, root: b.r, file, line: bl.line, diff: diff || undefined, origLine: bl.origLine })
       : `**${bl.summary.replace(/[\\`*_[\]<>]/g, '\\$&')}**`;
     const m = md(text);
     return new vscode.Hover(m);

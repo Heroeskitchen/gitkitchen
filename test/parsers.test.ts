@@ -183,12 +183,29 @@ describe('0.2.1 helpers', () => {
     expect(p.sameCommitLines(lines, 4)).toEqual([]);
     expect(p.sameCommitLines(lines, 99)).toEqual([]);
   });
-  it('hunkForLine picks the hunk covering the line', () => {
+  it('hunkForLine returns the changed run touching the line', () => {
     const d = 'diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n+b\n c\n@@ -10,2 +11,2 @@\n-x\n+y\n z\n';
-    expect(p.hunkForLine(d, 2)).toBe('@@ -1,2 +1,3 @@\n a\n+b\n c');
-    expect(p.hunkForLine(d, 12)).toBe('@@ -10,2 +11,2 @@\n-x\n+y\n z');
+    expect(p.hunkForLine(d, 2)).toBe('+b');
+    expect(p.hunkForLine(d, 12)).toBe('-x\n+y');
     expect(p.hunkForLine(d, 7)).toBeUndefined();
     expect(p.hunkForLine('', 1)).toBeUndefined();
+    expect(p.hunkForLine('@@ -1 +1 @@\n-a\n+b\n\\ No newline at end of file\n', 1)).toBe('-a\n+b');
+    expect(p.hunkForLine('Binary files a/f and b/f differ\n', 1)).toBeUndefined();
+  });
+  it('hunkForLine keeps one changed block and caps a long run at 6', () => {
+    const split = '@@ -1,4 +1,5 @@\n a\n-b\n+c\n d\n+e\n f\n';
+    expect(p.hunkForLine(split, 2)).toBe('-b\n+c');
+    expect(p.hunkForLine(split, 4)).toBe('+e');
+    const added = (n: number) => `@@ -0,0 +1,${n} @@\n` + Array.from({ length: n }, (_, i) => `+line ${i + 1}`).join('\n') + '\n';
+    expect(p.hunkForLine(added(10), 4)!.split('\n')).toHaveLength(10);
+    expect(p.diffSliceForLine(added(10), 4)!.hidden).toBe(0);
+    const long = p.diffSliceForLine(added(11), 1)!;
+    expect(long.text.split('\n')).toEqual(['+line 1', '+line 2', '+line 3', '+line 4', '+line 5', '+line 6']);
+    expect(long.hidden).toBe(5);
+    const mid = p.diffSliceForLine(added(20), 10)!;
+    expect(mid.text.split('\n')).toEqual(['+line 8', '+line 9', '+line 10', '+line 11', '+line 12', '+line 13']);
+    expect(mid.total).toBe(20); expect(mid.hidden).toBe(14);
+    expect(mid.text).not.toContain('@@');
   });
   it('statusBarText', () => {
     const now = 1000 * 1000 + 3 * 3600 * 1000;
@@ -415,14 +432,110 @@ describe('hover cards', () => {
     expect(m).toBe(`$(cloud) **T\\***\n\nS\n\na  \nb\n\n---\n\n[$(copy)](command:x.y?${encodeURIComponent('[{"a":1}]')} "Copy 'it'")`);
   });
   it('blame hover: header, message markdown, PR line, action bar, diff', () => {
-    const m = p.blameHoverMarkdown(d as any, { root: '/r', file: 'a.ts', web: 'https://github.com/o/r', nowMs: 1000 * 1000 + 3600_000, dateText: 'DATE', hunk: '@@ -1 +1 @@\n-a\n+b' });
-    expect(m).toMatch(/^\$\(account\) \*\*Ann Lee\*\* \$\(github\)&nbsp;&nbsp;\$\(history\) 1 hour ago \(DATE\)/);
+    const m = p.blameHoverMarkdown(d as any, { root: '/r', file: 'a.ts', web: 'https://github.com/o/r', nowMs: 1000 * 1000 + 3600_000, dateText: 'DATE', hunk: '-a\n+b' });
+    expect(m).toContain('**Ann Lee** <span style="color:var(--vscode-descriptionForeground);">$(history)</span> 1 hour ago <span style="color:var(--vscode-descriptionForeground);"><em>DATE</em></span>');
+    expect(m).not.toContain('$(github)'); expect(m).not.toContain('$(account)'); expect(m).not.toContain('float:right'); expect(m).not.toMatch(/color:#[0-9a-fA-F]/);
     expect(m).toContain('[#12](https://github.com/o/r/pull/12)'); expect(m).toContain('- first  \n- second');
-    expect(m).toContain('Co-authored-by: [Bo Ko](mailto:bo@x.io)');
-    expect(m).toContain('$(git-pull-request) [GitHub Issue or Pull Request #12](https://github.com/o/r/pull/12)');
-    expect(m).toContain('[$(git-commit) abcdef1](command:gitKitchen.commit.copySha?'); expect(m).toContain('command:gitKitchen.commit.openOnRemote?'); for (const id of ['commit.copyMessage', 'commit.search', 'commit.reveal', 'blame.comparePrevious', 'blame.openRevision', 'blame.previous']) expect(m).toContain(`command:gitKitchen.${id}?`);
-    expect(m).toContain('```diff\n@@ -1 +1 @@\n-a\n+b\n```'); expect(m).toMatch(/Changes added in \[\$\(git-commit\) abcdef1\]\(command:gitKitchen\.openCommitDiff/);
+    expect(m).not.toContain('Co-authored-by');
+    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">+ Bo Ko</span>](mailto:bo@x.io "Bo Ko <bo@x.io>")');
+    expect(m).toContain('$(link) [Pull request #12](https://github.com/o/r/pull/12)');
+    expect(m).not.toContain('$(git-pull-request)');
+    const at = (cmd: string) => m.indexOf(cmd);
+    expect(at('commit.copySha')).toBeLessThan(at('commit.copyMessage'));
+    expect(at('commit.copyMessage')).toBeLessThan(at('codicon-compare-changes'));
+    expect(at('codicon-compare-changes')).toBeLessThan(at('codicon-diff-multiple'));
+    expect(at('codicon-diff-multiple')).toBeLessThan(at('codicon codicon-diff"'));
+    expect(at('blame.comparePrevious')).toBeLessThan(at('blame.previous'));
+    expect(at('blame.previous')).toBeLessThan(at('blame.openRevision'));
+    expect(at('blame.openRevision')).toBeLessThan(at('commit.reveal'));
+    expect(at('commit.reveal')).toBeLessThan(at('commit.search'));
+    expect(at('commit.search')).toBeLessThan(at('commit.openOnRemote'));
+    expect(m).toContain('```diff\n-a\n+b\n```');
+    expect(m).toMatch(/Changes added in \[\$\(git-commit\) abcdef1\]\(command:gitKitchen\.openCommitDiff/);
+    expect(m).toContain('codicon codicon-compare-changes'); expect(m).toContain('"Compare with Previous"');
+    expect(m).not.toContain('more lines'); expect(m).not.toMatch(/Show all|Show less|<details/i);
     expect(p.messageMarkdown('<script>')).toBe('&lt;script&gt;');
+    expect(p.githubLoginFromEmail('123+ann-lee@users.noreply.github.com')).toBe('ann-lee');
+    expect(p.githubLoginFromEmail('Heroeskitchen@users.noreply.github.com')).toBe('Heroeskitchen');
+    expect(p.githubLoginFromEmail('ann@x.io')).toBeUndefined();
+    const linked = p.blameHoverMarkdown({ ...d, email: '123+ann-lee@users.noreply.github.com' } as any, { root: '/r', web: 'https://github.com/o/r', avatar: 'https://a/u', dateText: 'DATE' });
+    expect(linked).toContain('<img src="https://a/u" width="24" height="24"/> [**Ann Lee**](https://github.com/ann-lee)');
+    expect(p.blameHoverMarkdown(d as any, { root: '/r', web: 'https://github.com/o/r', login: 'ann-lee', dateText: 'DATE' })).toContain('[**Ann Lee**](https://github.com/ann-lee)');
+    expect(p.blameHoverMarkdown({ ...d, email: '123+ann-lee@users.noreply.github.com' } as any, { root: '/r', web: 'https://gitlab.com/o/r', dateText: 'DATE' })).not.toContain('https://github.com/ann-lee');
+    expect(p.longDate(Math.floor(new Date(2026, 9, 12, 11, 10).getTime() / 1000))).toBe('October 12th, 2026 11:10 AM');
+    expect(p.longDate(Math.floor(new Date(2026, 0, 1, 9, 5).getTime() / 1000))).toBe('January 1st, 2026 9:05 AM');
+    expect(p.longDate(Math.floor(new Date(2026, 0, 2, 0, 0).getTime() / 1000))).toBe('January 2nd, 2026 12:00 AM');
+    expect(p.longDate(Math.floor(new Date(2026, 0, 3, 15, 0).getTime() / 1000))).toBe('January 3rd, 2026 3:00 PM');
+    expect(p.longDate(Math.floor(new Date(2026, 0, 11, 11, 11).getTime() / 1000))).toBe('January 11th, 2026 11:11 AM');
+    expect(p.longDate(Math.floor(new Date(2026, 0, 13, 13, 0).getTime() / 1000))).toBe('January 13th, 2026 1:00 PM');
+  });
+  const squash = [
+    'Make F5 start a broken or old install (#49)',
+    '',
+    '* Make F5 prepare Docker, dependencies, and tables.',
+    '',
+    'Pressing F5 checks Docker, starts Postgres and Redis, installs when the lockfile changed, and creates missing tables. Data volumes are not deleted.',
+    '',
+    'Co-authored-by: Heroeskitchen <Heroeskitchen@users.noreply.github.com>',
+    '',
+    '* Ignore old Postgres log lines when the database is healthy.',
+    '',
+    'A later F5 was stopping on an incompatible-volume message left in the log after the data directory had already started.',
+    '',
+    'Co-authored-by: Heroeskitchen <Heroeskitchen@users.noreply.github.com>',
+    '',
+    '---------',
+    '',
+    'Co-authored-by: Cursor Agent <cursoragent@cursor.com>',
+    'Co-authored-by: Heroeskitchen <Heroeskitchen@users.noreply.github.com>',
+  ].join('\n');
+  it('squash message keeps paragraphs and folds two co-authors', () => {
+    const web = 'https://github.com/o/r';
+    const body = p.messageMarkdown(squash, web);
+    expect(body).toBe([
+      'Make F5 start a broken or old install ([#49](https://github.com/o/r/pull/49))',
+      '* Make F5 prepare Docker, dependencies, and tables.',
+      'Pressing F5 checks Docker, starts Postgres and Redis, installs when the lockfile changed, and creates missing tables. Data volumes are not deleted.',
+      '* Ignore old Postgres log lines when the database is healthy.',
+      'A later F5 was stopping on an incompatible-volume message left in the log after the data directory had already started.',
+    ].join('\n\n'));
+    expect(body).not.toContain('Co-authored-by'); expect(body).not.toContain('---'); expect(body).not.toMatch(/^[-=]+$/m);
+    expect(p.messageMarkdown('Title\n\nCo-authored-by: A <a@b.c>\n\n---------\n\nBody')).toBe('Title\n\nBody');
+    expect(p.messageMarkdown('Title\r\n\r\nCo-authored-by: A <a@b.c>\r\n\r\n---------\r\n\r\nBody')).toBe('Title\n\nBody');
+    expect(p.messageMarkdown('Head\n===\nTail')).toBe('Head  \nTail');
+    expect(p.messageMarkdown('Head\n---\nTail')).toBe('Head  \nTail');
+    const m = p.blameHoverMarkdown({ ...d, message: squash } as any, { root: '/r', file: 'a.ts', web, dateText: 'DATE' });
+    expect(m).toContain(body);
+    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">+2 co-authors</span>](mailto:Heroeskitchen@users.noreply.github.com "Heroeskitchen <Heroeskitchen@users.noreply.github.com>, Cursor Agent <cursoragent@cursor.com>")');
+    expect(m).not.toContain('Co-authored-by'); expect(m).not.toContain('---------');
+    expect(m).not.toMatch(/[^\n]\n[-=]{3,}[ \t]*\n/);
+    expect(m).toContain('$(link) [Pull request #49](https://github.com/o/r/pull/49)');
+  });
+  it('new-file diff is capped at 6 with the lines left out', () => {
+    const diff = 'diff --git a/f b/f\nnew file mode 100644\nindex 0000000..abc\n--- /dev/null\n+++ b/f\n@@ -0,0 +1,20 @@\n' + Array.from({ length: 20 }, (_, i) => `+line ${i + 1}`).join('\n') + '\n';
+    const m = p.blameHoverMarkdown(d as any, { root: '/r', file: 'f.ts', web: 'https://github.com/o/r', dateText: 'DATE', diff, origLine: 10 });
+    expect(m).toContain('```diff\n+line 8\n+line 9\n+line 10\n+line 11\n+line 12\n+line 13\n```');
+    expect(m).not.toContain('+line 1\n'); expect(m).not.toContain('@@'); expect(m).not.toContain('--- /dev/null'); expect(m).not.toContain('\\ No newline');
+    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">… 14 more lines · $(diff) Open full diff</span>]');
+    expect(m).toContain(`command:gitKitchen.openCommitDiff?${encodeURIComponent(JSON.stringify([{ root: '/r', sha: d.sha, file: 'f.ts' }]))}`);
+    expect(m).toContain('"Open full diff"');
+    expect(m).not.toMatch(/Show all|Show less|<details/i);
+    const short = p.blameHoverMarkdown(d as any, { root: '/r', file: 'f.ts', dateText: 'DATE', diff: '@@ -0,0 +1,8 @@\n' + Array.from({ length: 8 }, (_, i) => `+L${i + 1}`).join('\n'), origLine: 3 });
+    expect(short).toContain('+L1'); expect(short).toContain('+L8'); expect(short).not.toContain('more lines');
+  });
+  it('omits the pull request row when the message has none', () => {
+    const m = p.blameHoverMarkdown({ ...d, message: 'Just a fix\n\nNothing to link' } as any, { root: '/r', file: 'a.ts', web: 'https://github.com/o/r', dateText: 'DATE' });
+    expect(m).not.toContain('Pull request'); expect(m).not.toContain('$(link)'); expect(m).not.toContain('$(git-pull-request)');
+    expect(m).toContain('Just a fix\n\nNothing to link');
+  });
+  it('drops the revisions group when there is no file', () => {
+    const m = p.blameHoverMarkdown(d as any, { root: '/r', web: 'https://github.com/o/r', dateText: 'DATE' });
+    expect(m).not.toContain('gitKitchen.blame.');
+    expect(m).not.toContain('codicon-diff-multiple'); expect(m).not.toContain('codicon codicon-diff"');
+    expect(m).not.toContain('codicon-file-code'); expect(m).not.toContain('codicon-history');
+    expect(m).toContain('codicon-compare-changes'); expect(m).toContain('codicon-copy');
+    expect(m).toContain('codicon-list-tree'); expect(m).toContain('codicon-search'); expect(m).toContain('codicon-globe');
+    expect(p.blameHoverMarkdown(d as any, { root: '/r', file: 'a.ts', dateText: 'DATE' })).not.toContain('codicon-globe');
   });
   it('row cards', () => {
     const b = { name: 'feat/x', current: false, upstream: 'origin/feat/x', ahead: 2, behind: 1, gone: false, sha: 'abc1234', subject: 'Work', time: 0 };
