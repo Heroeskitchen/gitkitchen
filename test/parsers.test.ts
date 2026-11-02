@@ -433,11 +433,13 @@ describe('hover cards', () => {
   });
   it('blame hover: header, message markdown, PR line, action bar, diff', () => {
     const m = p.blameHoverMarkdown(d as any, { root: '/r', file: 'a.ts', web: 'https://github.com/o/r', nowMs: 1000 * 1000 + 3600_000, dateText: 'DATE', hunk: '-a\n+b' });
-    expect(m).toContain('**Ann Lee** <span style="color:var(--vscode-descriptionForeground);">$(history)</span> 1 hour ago <span style="color:var(--vscode-descriptionForeground);"><em>DATE</em></span>');
+    expect(m).toContain('**Ann Lee** <span style="color:var(--vscode-descriptionForeground);">$(history)</span> <span style="color:var(--vscode-descriptionForeground);">*1 hour ago*</span> <span style="color:var(--vscode-descriptionForeground);">DATE</span>');
+    expect(m).not.toContain('<em>DATE</em>'); expect(m).not.toContain('*DATE*'); expect(m).not.toContain('<em>1 hour ago</em>');
     expect(m).not.toContain('$(github)'); expect(m).not.toContain('$(account)'); expect(m).not.toContain('float:right'); expect(m).not.toMatch(/color:#[0-9a-fA-F]/);
-    expect(m).toContain('[#12](https://github.com/o/r/pull/12)'); expect(m).toContain('- first  \n- second');
+    expect(m).toContain('**Fix the thing ([#12](https://github.com/o/r/pull/12))**');
+    expect(m).toContain('- first  \n- second'); expect(m).not.toContain('**- first');
     expect(m).not.toContain('Co-authored-by');
-    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">+ Bo Ko</span>](mailto:bo@x.io "Bo Ko <bo@x.io>")');
+    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">*+ Bo Ko*</span>](mailto:bo@x.io "Bo Ko <bo@x.io>")');
     expect(m).toContain('$(link) [Pull request #12](https://github.com/o/r/pull/12)');
     expect(m).not.toContain('$(git-pull-request)');
     const at = (cmd: string) => m.indexOf(cmd);
@@ -451,10 +453,16 @@ describe('hover cards', () => {
     expect(at('commit.reveal')).toBeLessThan(at('commit.search'));
     expect(at('commit.search')).toBeLessThan(at('commit.openOnRemote'));
     expect(m).toContain('```diff\n-a\n+b\n```');
-    expect(m).toMatch(/Changes added in \[\$\(git-commit\) abcdef1\]\(command:gitKitchen\.openCommitDiff/);
+    expect(m).toContain('[$(git-commit) `abcdef1`](command:gitKitchen.commit.copySha?');
+    expect(m).toContain('<span style="color:var(--vscode-descriptionForeground);">Changes added in</span> [$(git-commit) `abcdef1`](command:gitKitchen.openCommitDiff');
+    expect(m).not.toContain('[$(git-commit) abcdef1]');
     expect(m).toContain('codicon codicon-compare-changes'); expect(m).toContain('"Compare with Previous"');
     expect(m).not.toContain('more lines'); expect(m).not.toMatch(/Show all|Show less|<details/i);
-    expect(p.messageMarkdown('<script>')).toBe('&lt;script&gt;');
+    expect(p.messageMarkdown('<script>')).toBe('**&lt;script&gt;**');
+    expect(p.messageMarkdown('Use `code` in the body\n\nKeep `this` code')).toBe('**Use `code` in the body**\n\nKeep `this` code');
+    expect(p.messageMarkdown('**already**\n\nbody')).toBe('**already**\n\nbody');
+    expect(p.messageMarkdown('# Title **x**\n\nbody')).toBe('\\# Title **x**\n\nbody');
+    expect(p.messageMarkdown('')).toBe('');
     expect(p.githubLoginFromEmail('123+ann-lee@users.noreply.github.com')).toBe('ann-lee');
     expect(p.githubLoginFromEmail('Heroeskitchen@users.noreply.github.com')).toBe('Heroeskitchen');
     expect(p.githubLoginFromEmail('ann@x.io')).toBeUndefined();
@@ -493,20 +501,20 @@ describe('hover cards', () => {
     const web = 'https://github.com/o/r';
     const body = p.messageMarkdown(squash, web);
     expect(body).toBe([
-      'Make F5 start a broken or old install ([#49](https://github.com/o/r/pull/49))',
+      '**Make F5 start a broken or old install ([#49](https://github.com/o/r/pull/49))**',
       '* Make F5 prepare Docker, dependencies, and tables.',
       'Pressing F5 checks Docker, starts Postgres and Redis, installs when the lockfile changed, and creates missing tables. Data volumes are not deleted.',
       '* Ignore old Postgres log lines when the database is healthy.',
       'A later F5 was stopping on an incompatible-volume message left in the log after the data directory had already started.',
     ].join('\n\n'));
     expect(body).not.toContain('Co-authored-by'); expect(body).not.toContain('---'); expect(body).not.toMatch(/^[-=]+$/m);
-    expect(p.messageMarkdown('Title\n\nCo-authored-by: A <a@b.c>\n\n---------\n\nBody')).toBe('Title\n\nBody');
-    expect(p.messageMarkdown('Title\r\n\r\nCo-authored-by: A <a@b.c>\r\n\r\n---------\r\n\r\nBody')).toBe('Title\n\nBody');
-    expect(p.messageMarkdown('Head\n===\nTail')).toBe('Head  \nTail');
-    expect(p.messageMarkdown('Head\n---\nTail')).toBe('Head  \nTail');
+    expect(p.messageMarkdown('Title\n\nCo-authored-by: A <a@b.c>\n\n---------\n\nBody')).toBe('**Title**\n\nBody');
+    expect(p.messageMarkdown('Title\r\n\r\nCo-authored-by: A <a@b.c>\r\n\r\n---------\r\n\r\nBody')).toBe('**Title**\n\nBody');
+    expect(p.messageMarkdown('Head\n===\nTail')).toBe('**Head**  \nTail');
+    expect(p.messageMarkdown('Head\n---\nTail')).toBe('**Head**  \nTail');
     const m = p.blameHoverMarkdown({ ...d, message: squash } as any, { root: '/r', file: 'a.ts', web, dateText: 'DATE' });
     expect(m).toContain(body);
-    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">+2 co-authors</span>](mailto:Heroeskitchen@users.noreply.github.com "Heroeskitchen <Heroeskitchen@users.noreply.github.com>, Cursor Agent <cursoragent@cursor.com>")');
+    expect(m).toContain('[<span style="color:var(--vscode-descriptionForeground);">*+2 co-authors*</span>](mailto:Heroeskitchen@users.noreply.github.com "Heroeskitchen <Heroeskitchen@users.noreply.github.com>, Cursor Agent <cursoragent@cursor.com>")');
     expect(m).not.toContain('Co-authored-by'); expect(m).not.toContain('---------');
     expect(m).not.toMatch(/[^\n]\n[-=]{3,}[ \t]*\n/);
     expect(m).toContain('$(link) [Pull request #49](https://github.com/o/r/pull/49)');
@@ -526,7 +534,8 @@ describe('hover cards', () => {
   it('omits the pull request row when the message has none', () => {
     const m = p.blameHoverMarkdown({ ...d, message: 'Just a fix\n\nNothing to link' } as any, { root: '/r', file: 'a.ts', web: 'https://github.com/o/r', dateText: 'DATE' });
     expect(m).not.toContain('Pull request'); expect(m).not.toContain('$(link)'); expect(m).not.toContain('$(git-pull-request)');
-    expect(m).toContain('Just a fix\n\nNothing to link');
+    expect(m).toContain('**Just a fix**\n\nNothing to link');
+    expect(m).not.toContain('`#');
   });
   it('drops the revisions group when there is no file', () => {
     const m = p.blameHoverMarkdown(d as any, { root: '/r', web: 'https://github.com/o/r', dateText: 'DATE' });

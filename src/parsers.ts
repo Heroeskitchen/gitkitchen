@@ -596,18 +596,42 @@ const GROUP_SEP = `&nbsp;&nbsp;${muted('|')}&nbsp;&nbsp;`;
 function greyIconLink(icon: string, tip: string, command: string, args?: unknown): string {
   return `[${muted(`<span class="codicon codicon-${icon}"></span>`)}](${cmdUri(command, args)} "${tip.replace(/"/g, "'")}")`;
 }
-/** A commit message as markdown. HTML is neutralized and `#123` is linked. Co-author trailers are removed, and a line of only dashes or equals signs is dropped so it cannot become a setext heading or a rule. */
+/** A commit message as markdown. HTML is neutralized and `#123` is linked. The first line is bold when that stays one phrase and not a heading. Co-author trailers are removed, and a line of only dashes or equals signs is dropped so it cannot become a setext heading or a rule. */
 export function messageMarkdown(message: string, web?: string): string {
   const safe = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const kept = safe.split('\n').map(l => l.replace(/\r$/, '')).filter(l => !CO_AUTHOR_ESCAPED.test(l) && !isRuleLine(l));
   const paragraphs = kept.join('\n').split(/\n{2,}/).map(p => p.split('\n').map(l => l.replace(/[ \t]+$/, '')).filter(l => l.length > 0).join('  \n')).filter(Boolean);
-  return linkPrRefs(paragraphs.join('\n\n'), web);
+  return emphasizeSubject(linkPrRefs(paragraphs.join('\n\n'), web));
 }
+/** Bold the first line only. A blank line, or one whose markers would not stay a single bold phrase, stays plain and is never a heading. */
+function emphasizeSubject(md: string): string {
+  if (!md) return md;
+  const nl = md.indexOf('\n');
+  const first = nl < 0 ? md : md.slice(0, nl);
+  const rest = nl < 0 ? '' : md.slice(nl);
+  const subject = first.replace(/[ \t]+$/, '');
+  const styled = boldSubject(subject);
+  return styled + first.slice(subject.length) + rest;
+}
+function boldSubject(line: string): string {
+  if (!line.trim() || breaksBold(line)) return line.replace(/^(#{1,6})(?=[ \t]|$)/, '\\$1');
+  return `**${line}**`;
+}
+function breaksBold(line: string): boolean {
+  if (/^\s|\s$/.test(line) || line.includes('**')) return true;
+  if (line.startsWith('*') || line.endsWith('*') || line.startsWith('_') || line.endsWith('_')) return true;
+  return (line.split('`').length - 1) % 2 !== 0;
+}
+/** Italics inside a muted span. VS Code's markdown parser treats `*` between inline tags as emphasis. */
+function em(text: string): string { return `*${text.replace(/[\\*_`]/g, c => '\\' + c)}*`; }
 function coAuthorLine(message: string): string | undefined {
   const authors = coAuthors(message); if (!authors.length) return;
   const title = authors.map(a => `${a.name} <${a.email}>`).join(', ').replace(/"/g, "'");
   const label = authors.length === 1 ? `+ ${escapeHtml(authors[0].name)}` : `+${authors.length} co-authors`;
-  return `[${muted(label)}](mailto:${authors[0].email} "${title}")`;
+  return `[${muted(em(label))}](mailto:${authors[0].email} "${title}")`;
+}
+function shaChip(sha: string, tip: string, command: string, args: unknown): string {
+  return actionLink({ icon: 'git-commit', label: `\`${sha}\``, tip, command, args });
 }
 export function prNumberFromMessage(message: string): number | undefined {
   const m = /\(#(\d+)\)|Merge pull request #(\d+)/.exec(message); return m ? +(m[1] ?? m[2]) : undefined;
@@ -622,7 +646,8 @@ export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?:
   const who = profile ? `[**${name}**](${profile})` : `**${name}**`;
   const avatar = o.avatar ? `<img src="${o.avatar}" width="24" height="24"/> ` : '';
   const date = o.dateText ?? longDate(d.time);
-  const parts = [`${avatar}${who} ${muted('$(history)')} ${relativeTime(d.time, o.nowMs)} ${muted(`<em>${escapeHtml(date)}</em>`)}`];
+  const rel = escapeHtml(relativeTime(d.time, o.nowMs));
+  const parts = [`${avatar}${who} ${muted('$(history)')} ${muted(em(rel))} ${muted(escapeHtml(date))}`];
   const msg = messageMarkdown(d.message, o.web); if (msg) parts.push(msg);
   const co = coAuthorLine(d.message); if (co) parts.push(co);
   const pr = prNumberFromMessage(d.message);
@@ -643,7 +668,7 @@ export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?:
     ...(o.web ? [greyIconLink('globe', 'Open Commit on Remote', 'gitKitchen.commit.openOnRemote', at)] : []),
   ].join(gap);
   const bar = [
-    actionLink({ icon: 'git-commit', label: sha, tip: 'Copy SHA', command: 'gitKitchen.commit.copySha', args: { sha: d.sha } }),
+    shaChip(sha, 'Copy SHA', 'gitKitchen.commit.copySha', { sha: d.sha }),
     greyIconLink('copy', 'Copy Message', 'gitKitchen.commit.copyMessage', at),
     changes, revisions, nav,
   ].filter(Boolean).join(GROUP_SEP);
@@ -656,7 +681,7 @@ export function blameHoverMarkdown(d: CommitDetails, o: { avatar?: string; web?:
   if (hunk) {
     parts.push('```diff\n' + hunk + '\n```');
     if (hidden > 0) parts.push(`[${muted(`… ${hidden} more lines · $(diff) Open full diff`)}](${cmdUri('gitKitchen.openCommitDiff', fileArgs)} "Open full diff")`);
-    let foot = `Changes added in ${actionLink({ icon: 'git-commit', label: sha, tip: 'Open Changes', command: 'gitKitchen.openCommitDiff', args: fileArgs })}`;
+    let foot = `${muted('Changes added in')} ${shaChip(sha, 'Open Changes', 'gitKitchen.openCommitDiff', fileArgs)}`;
     if (o.file) foot += `${GROUP_SEP}${greyIconLink('compare-changes', 'Compare with Previous', 'gitKitchen.blame.comparePrevious', fa)}`;
     parts.push(foot);
   }
