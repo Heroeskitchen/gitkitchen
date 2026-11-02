@@ -45,7 +45,11 @@ describe('worktrees', () => {
     expect(w[2]).toMatchObject({ detached: true, prunable: true });
   });
   it('default path', () => {
-    expect(p.defaultWorktreePath('/r/', 'feat/x')).toBe('/r/worktrees/feat-x');
+    expect(p.defaultWorktreePath('/home/me/repo', 'feat/x')).toBe('/home/me/repo.worktrees/feat-x');
+    expect(p.defaultWorktreePath('/home/me/repo/', 'feat/x')).toBe('/home/me/repo.worktrees/feat-x');
+    expect(p.defaultWorktreePath('/r/', 'feat/x')).toBe('/r.worktrees/feat-x');
+    expect(p.defaultWorktreePath('E:\\DPFE\\clients\\LRG\\business-central', 'feature/sales-operations')).toBe('E:\\DPFE\\clients\\LRG\\business-central.worktrees\\feature-sales-operations');
+    expect(p.defaultWorktreePath('E:\\DPFE\\clients\\LRG\\business-central\\', 'feature\\sales-operations')).toBe('E:\\DPFE\\clients\\LRG\\business-central.worktrees\\feature-sales-operations');
   });
 });
 

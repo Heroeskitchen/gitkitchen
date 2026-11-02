@@ -165,9 +165,15 @@ export function groupByFile<T extends { file: string }>(items: T[]): Map<string,
   return m;
 }
 
-/** Default worktree folder: <repo>/worktrees/<branch-with-slashes-flattened> */
+/** Default worktree folder: <parent of repo>/<repo folder name>.worktrees/<branch with / and \ replaced by ->. */
 export function defaultWorktreePath(repoRoot: string, branch: string): string {
-  return `${repoRoot.replace(/[\\/]+$/, '')}/worktrees/${branch.replace(/[\\/]/g, '-')}`;
+  const root = repoRoot.replace(/[\\/]+$/, '');
+  const idx = Math.max(root.lastIndexOf('/'), root.lastIndexOf('\\'));
+  const sep = idx >= 0 && root[idx] === '\\' ? '\\' : '/';
+  const parent = idx > 0 ? root.slice(0, idx) : idx === 0 ? sep : '';
+  const folder = idx >= 0 ? root.slice(idx + 1) : root;
+  const leaf = `${folder}.worktrees${sep}${branch.replace(/[\\/]/g, '-')}`;
+  return parent.endsWith(sep) ? `${parent}${leaf}` : parent ? `${parent}${sep}${leaf}` : leaf;
 }
 
 export function parseNameList(out: string): string[] { return out.split('\n').map(s => s.trim()).filter(Boolean); }
