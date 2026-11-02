@@ -26,7 +26,7 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
 - **Stashes**: save (optionally with untracked files), apply, pop, drop, view changed files as diffs,
   hover preview, and stash-and-switch in one step.
 - **Worktrees**: each worktree with its branch, dirty marker and ahead/behind counts. Create a worktree from
-  any branch (default folder `<repo>/worktrees/<branch>`, or choose one) or from a new branch; open in a new or
+  any branch (default folder `<parent>/<repo>.worktrees/<branch>`, or choose one) or from a new branch; open in a new or
   the current window, reveal, open a terminal, lock/unlock, move, remove and prune.
 - **Pull Requests**: open GitHub pull requests with check status and review state. Open, check out, compare,
   and merge, squash-merge or rebase-merge. Create a pull request from any branch with the title and body
