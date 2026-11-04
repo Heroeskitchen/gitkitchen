@@ -248,6 +248,7 @@ async function refCommits(r: string, ref: string, key: string): Promise<Node[]> 
   const limit = refLimits.get(key) ?? 50;
   const cs = P.parseLog(await git(r, 'log', '-n', String(limit + 1), `--format=${P.LOG_FORMAT}`, ref, '--').catch(() => ''));
   const nodes = cs.slice(0, limit).map(c => { const x = commitNode(r, c); x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed; x.command = undefined; x.id = `${key}:${c.sha}`; return x; });
+  if (key === 'commits' && nodes[0] && nodes[0].data.commit?.parents?.length) nodes[0].contextValue = 'commit.head'; // the tip: only it can be undone
   if (cs.length > limit) { const m = new Node('Load more…', 'loadMore', { key }); m.iconPath = icon('ellipsis'); m.id = `${key}:more`; m.command = { command: 'gitKitchen.commits.loadMore', title: 'Load more', arguments: [key] }; nodes.push(m); }
   return nodes;
 }
@@ -715,7 +716,7 @@ function registerHistory() {
     await vscode.env.clipboard.writeText(url); vscode.window.setStatusBarMessage(`Copied ${url}`, 4000); });
   cmd('gitKitchen.commit.openOnGitHub', async (n: Node) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(n.data.root)}/commit/${n.data.sha}`)));
   cmd('gitKitchen.copyText', async (text: string) => { await vscode.env.clipboard.writeText(String(text)); vscode.window.setStatusBarMessage('Copied', 1500); });
-  cmd('gitKitchen.commit.copyMessage', async (a: { root: string; sha: string }) => { await vscode.env.clipboard.writeText((await git(a.root, 'log', '-1', '--format=%B', a.sha)).trim()); vscode.window.setStatusBarMessage('Copied commit message', 1500); });
+  cmd('gitKitchen.commit.copyMessage', async (n: any) => { const a: { root: string; sha: string } = commitArg(n); await vscode.env.clipboard.writeText((await git(a.root, 'log', '-1', '--format=%B', a.sha)).trim()); vscode.window.setStatusBarMessage('Copied commit message', 1500); });
   cmd('gitKitchen.commit.search', async (a?: { root: string; sha: string }) => {
     const r = a?.root ?? await root(); const q = (a as any)?.direct ? a!.sha : await vscode.window.showInputBox({ title: 'Search Commits', prompt: 'SHA, message text or author', value: a?.sha?.slice(0, 7) }); if (!q) return;
     const bySha = /^[0-9a-f]{4,40}$/i.test(q) ? P.parseLog(await git(r, 'log', '--all', '-n', '1', `--format=${P.LOG_FORMAT}`, q, '--').catch(() => '')) : [];
@@ -723,7 +724,7 @@ function registerHistory() {
     const seen = new Set<string>(); const items = found.filter(c => !seen.has(c.sha) && seen.add(c.sha)).map(c => ({ label: c.subject, description: `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`, sha: c.sha }));
     const pick = await vscode.window.showQuickPick(items, { title: `Commits matching "${q}"`, matchOnDescription: true }); if (pick) await openCommitDiff({ root: r, sha: pick.sha });
   });
-  cmd('gitKitchen.commit.openOnRemote', async (a: { root: string; sha: string }) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(a.root)}/commit/${a.sha}`)));
+  cmd('gitKitchen.commit.openOnRemote', async (n: any) => { const a = commitArg(n); return vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(a.root)}/commit/${a.sha}`)); });
   cmd('gitKitchen.blame.comparePrevious', async (a: { root: string; sha: string; file: string }) => {
     const prev = (await git(a.root, 'rev-parse', '--verify', '-q', `${a.sha}^`).catch(() => '')).trim();
     await diffFile(a.root, prev || undefined, undefined, a.file);
@@ -745,6 +746,29 @@ function registerHistory() {
   });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
+  registerCommitActions();
+}
+/** A commit row's node, or a plain { root, sha } from a hover link: both give { root, sha }. */
+function commitArg(n: any): { root: string; sha: string; file?: string } { return n?.data?.sha ? n.data : n; }
+/**
+ * Hover buttons on commit rows (declared as `inline` entries under `view/item/context` in package.json).
+ * To add one: declare the command (title, icon), hide it in `commandPalette`, add an `inline@N` menu entry
+ * (with `alt` for the Alt variant), then register its handler here.
+ */
+function registerCommitActions() {
+  cmd('gitKitchen.commit.undo', async (n: Node) => {
+    const { root: r, sha } = commitArg(n); const head = (await git(r, 'rev-parse', 'HEAD')).trim();
+    if (head !== sha) { vscode.window.showInformationMessage('Only the latest commit can be undone.'); return; }
+    if (!await git(r, 'rev-parse', '--verify', '-q', 'HEAD~1').catch(() => '')) { vscode.window.showInformationMessage('This is the first commit; there is nothing to undo to.'); return; }
+    await git(r, 'reset', '--soft', 'HEAD~1'); refreshAll(); vscode.window.setStatusBarMessage(`Undid ${sha.slice(0, 7)}; its changes are staged`, 4000);
+  });
+  cmd('gitKitchen.commit.copyRemoteUrl', async (n: Node) => { const a = commitArg(n); const url = `${await webUrl(a.root)}/commit/${a.sha}`;
+    await vscode.env.clipboard.writeText(url); vscode.window.setStatusBarMessage(`Copied ${url}`, 4000); });
+  cmd('gitKitchen.commit.compareHead', async (n: Node) => { const a = commitArg(n); await compareRefs(a.root, 'HEAD', a.sha, `HEAD ↔ ${a.sha.slice(0, 8)}`); });
+  const withWorkingTree = async (n: Node) => { const a = commitArg(n); await compareCommitWorking({ root: a.root, sha: a.sha }); };
+  cmd('gitKitchen.commit.compareWorkingTree', withWorkingTree);
+  cmd('gitKitchen.commit.openAllChangesWorking', withWorkingTree);
+  cmd('gitKitchen.commit.openAllChanges', async (n: Node) => { const a = commitArg(n); await openCommitDiff({ root: a.root, sha: a.sha }); });
 }
 
 // ---------- Worktrees ----------
