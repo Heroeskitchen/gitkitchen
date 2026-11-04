@@ -243,12 +243,20 @@ async function runOperation(action: 'continue' | 'skip' | 'abort') {
   await withProgress(`${action[0].toUpperCase()}${action.slice(1)} ${op.kind}`, () => git(r, '-c', 'core.editor=true', ...args)).finally(refreshAll);
 }
 const refLimits = new Map<string, number>();
+let commitsAuthor = '';
+/** `git log` filters for the Commits view, from its "..." menu. */
+function commitsFilters(): string[] {
+  const f: string[] = []; if (commitsAuthor) f.push('-i', `--author=${commitsAuthor}`);
+  if (vscode.workspace.getConfiguration('gitKitchen').get('commits.hideMerges', false)) f.push('--no-merges');
+  return f;
+}
 /** Commits reachable from `ref`, newest first, `limit` at a time with a load-more row. `key` identifies the list. */
 async function refCommits(r: string, ref: string, key: string): Promise<Node[]> {
   const limit = refLimits.get(key) ?? 50;
-  const cs = P.parseLog(await git(r, 'log', '-n', String(limit + 1), `--format=${P.LOG_FORMAT}`, ref, '--').catch(() => ''));
+  const filters = key === 'commits' ? commitsFilters() : [];
+  const cs = P.parseLog(await git(r, 'log', '-n', String(limit + 1), `--format=${P.LOG_FORMAT}`, ...filters, ref, '--').catch(() => ''));
   const nodes = cs.slice(0, limit).map(c => { const x = commitNode(r, c); x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed; x.command = undefined; x.id = `${key}:${c.sha}`; return x; });
-  if (key === 'commits' && nodes[0] && nodes[0].data.commit?.parents?.length) nodes[0].contextValue = 'commit.head'; // the tip: only it can be undone
+  if (key === 'commits' && !filters.length && nodes[0] && nodes[0].data.commit?.parents?.length) nodes[0].contextValue = 'commit.head'; // the tip: only it can be undone
   if (cs.length > limit) { const m = new Node('Load more…', 'loadMore', { key }); m.iconPath = icon('ellipsis'); m.id = `${key}:more`; m.command = { command: 'gitKitchen.commits.loadMore', title: 'Load more', arguments: [key] }; nodes.push(m); }
   return nodes;
 }
@@ -747,6 +755,7 @@ function registerHistory() {
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
+  registerCommitsToolbar();
 }
 /** A commit row's node, or a plain { root, sha } from a hover link: both give { root, sha }. */
 function commitArg(n: any): { root: string; sha: string; file?: string } { return n?.data?.sha ? n.data : n; }
@@ -1121,3 +1130,25 @@ export function deactivate() {}
 // Exposed for the smoke test.
 const views: Record<string, vscode.TreeView<Node>> = {};
 export const _test = { setBranchPrs: (prs: P.BranchPrInfo[]) => { mockBranchPrs = prs; }, branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+
+/**
+ * Commits view title bar: icon buttons (`navigation@N`) and the "..." menu (other groups) in package.json.
+ * To add one: declare the command, hide it in `commandPalette`, add a `view/title` line, register its handler here.
+ */
+function registerCommitsToolbar() {
+  const setCfg = (key: string, v: unknown) => vscode.workspace.getConfiguration('gitKitchen').update(key, v, vscode.ConfigurationTarget.Global);
+  cmd('gitKitchen.commits.pull', async () => { const r = await root(); await withProgress('Pulling', () => git(r, 'pull', '--ff-only')); refreshAll(); });
+  cmd('gitKitchen.commits.push', async () => vscode.commands.executeCommand('gitKitchen.branch.push'));
+  cmd('gitKitchen.commits.fetch', async () => { const r = await root(); await withProgress('Fetching', () => git(r, 'fetch', '--all', '--prune')); refreshAll(); });
+  cmd('gitKitchen.commits.switchBranch', async () => vscode.commands.executeCommand('gitKitchen.branch.switch'));
+  cmd('gitKitchen.commits.filterAuthor', async () => {
+    const v = await vscode.window.showInputBox({ title: 'Filter Commits by Author', prompt: 'Name or email; leave empty to show everyone', value: commitsAuthor }); if (v === undefined) return;
+    commitsAuthor = v.trim(); const view = views['gitKitchen.commits']; if (view) view.description = commitsAuthor ? `author: ${commitsAuthor}` : undefined; refreshAll();
+  });
+  cmd('gitKitchen.commits.viewFilesAsList', () => setCfg('files.layout', 'list'));
+  cmd('gitKitchen.commits.viewFilesAsTree', () => setCfg('files.layout', 'tree'));
+  cmd('gitKitchen.commits.hideAvatars', () => setCfg('avatars', false));
+  cmd('gitKitchen.commits.showAvatars', () => setCfg('avatars', true));
+  cmd('gitKitchen.commits.hideMerges', () => setCfg('commits.hideMerges', true));
+  cmd('gitKitchen.commits.showMerges', () => setCfg('commits.hideMerges', false));
+}
