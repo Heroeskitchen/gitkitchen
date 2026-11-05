@@ -586,9 +586,11 @@ function heatDecos(where: 'gutter' | 'background') {
     : { isWholeLine: true, backgroundColor: `rgba(${c},${(0.22 - i * 0.018).toFixed(3)})` }));
 }
 let heatGutter = heatDecos('gutter'); let heatBg = heatDecos('background');
-const addedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
-const modifiedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.modifiedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.modifiedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
-const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '1px 0 0 0', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.deletedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
+const addedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.addedBackground') });
+const modifiedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.modifiedBackground') });
+/** Deleted lines: a red bar on the line after the deletion, with a small wedge at its top. No scrollbar ticks (the editor draws its own). */
+const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground'),
+  before: { contentText: '', width: '0', height: '0', textDecoration: 'none; position: absolute; margin-left: -2px; margin-top: -4px; border-left: 6px solid var(--vscode-editorGutter-deletedBackground); border-top: 4px solid transparent; border-bottom: 4px solid transparent;' } });
 const sameCommitDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerLane: vscode.OverviewRulerLane.Center });
 const statusItem = vscode.window.createStatusBarItem('gitKitchen.blame', vscode.StatusBarAlignment.Left, 50);
 statusItem.name = 'Git Kitchen Blame';
