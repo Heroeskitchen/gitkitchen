@@ -204,7 +204,7 @@ export async function run() {
     fs.writeFileSync(path.join(root, 'c.txt'), 'both\n'); sh(root, 'add', 'c.txt');
     n = await t.loadCommits(); assert.strictEqual(n[0].description, 'no conflicts, ready to continue');
     await t.runOperation('continue'); assert.strictEqual(await t.operationState(root), undefined);
-    n = await t.loadCommits(); assert.strictEqual(n[0].contextValue, 'commit');
+    n = await t.loadCommits(); assert.strictEqual(n[0].contextValue, 'commit.head');
   });
   await check('rebase and cherry-pick detected, including in a worktree', async () => {
     sh(root, 'switch', '-q', '-c', 'rb', 'main~1'); fs.writeFileSync(path.join(root, 'c.txt'), 'rb\n'); sh(root, 'add', 'c.txt'); sh(root, 'commit', '-qm', 'Rb');
@@ -237,7 +237,7 @@ export async function run() {
     const md = await t.commitCard(root, sha); const v = md.value;
     assert.match(v, /\*\*Smoke\*\*, .* \(/); assert.match(v, /`[0-9a-f]{7}`\]\(command:gitKitchen\.commit\.copySha/); assert.match(v, /\+3 ~0 -0/);
     assert.match(v, /color:#3fb950;">\+3<\/span>/); assert.match(v, /Nested files/);
-    const n = (await t.loadCommits()).find((x: any) => x.contextValue === 'commit'); await t.resolveCommitTooltip(n); assert.match(n.tooltip.value, /\+3 ~0 -0/);
+    const n = (await t.loadCommits()).find((x: any) => /^commit/.test(x.contextValue)); await t.resolveCommitTooltip(n); assert.match(n.tooltip.value, /\+3 ~0 -0/);
     const doc = await vscode.workspace.openTextDocument(path.join(root, 'pkg', 'z.ts')); const ed = await vscode.window.showTextDocument(doc);
     ed.selection = new vscode.Selection(0, 0, 0, 0); await t.updateBlame(); await new Promise(r => setTimeout(r, 300));
     assert.match(String(t.statusTooltip()?.value ?? t.statusTooltip()), /Nested files/);

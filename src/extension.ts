@@ -243,11 +243,20 @@ async function runOperation(action: 'continue' | 'skip' | 'abort') {
   await withProgress(`${action[0].toUpperCase()}${action.slice(1)} ${op.kind}`, () => git(r, '-c', 'core.editor=true', ...args)).finally(refreshAll);
 }
 const refLimits = new Map<string, number>();
+let commitsAuthor = '';
+/** `git log` filters for the Commits view, from its "..." menu. */
+function commitsFilters(): string[] {
+  const f: string[] = []; if (commitsAuthor) f.push('-i', `--author=${commitsAuthor}`);
+  if (vscode.workspace.getConfiguration('gitKitchen').get('commits.hideMerges', false)) f.push('--no-merges');
+  return f;
+}
 /** Commits reachable from `ref`, newest first, `limit` at a time with a load-more row. `key` identifies the list. */
 async function refCommits(r: string, ref: string, key: string): Promise<Node[]> {
   const limit = refLimits.get(key) ?? 50;
-  const cs = P.parseLog(await git(r, 'log', '-n', String(limit + 1), `--format=${P.LOG_FORMAT}`, ref, '--').catch(() => ''));
+  const filters = key === 'commits' ? commitsFilters() : [];
+  const cs = P.parseLog(await git(r, 'log', '-n', String(limit + 1), `--format=${P.LOG_FORMAT}`, ...filters, ref, '--').catch(() => ''));
   const nodes = cs.slice(0, limit).map(c => { const x = commitNode(r, c); x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed; x.command = undefined; x.id = `${key}:${c.sha}`; return x; });
+  if (key === 'commits' && !filters.length && nodes[0] && nodes[0].data.commit?.parents?.length) nodes[0].contextValue = 'commit.head'; // the tip: only it can be undone
   if (cs.length > limit) { const m = new Node('Load more…', 'loadMore', { key }); m.iconPath = icon('ellipsis'); m.id = `${key}:more`; m.command = { command: 'gitKitchen.commits.loadMore', title: 'Load more', arguments: [key] }; nodes.push(m); }
   return nodes;
 }
@@ -577,9 +586,11 @@ function heatDecos(where: 'gutter' | 'background') {
     : { isWholeLine: true, backgroundColor: `rgba(${c},${(0.22 - i * 0.018).toFixed(3)})` }));
 }
 let heatGutter = heatDecos('gutter'); let heatBg = heatDecos('background');
-const addedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.addedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
-const modifiedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 3px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.modifiedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.modifiedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
-const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '1px 0 0 0', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground'), overviewRulerColor: new vscode.ThemeColor('editorGutter.deletedBackground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
+const addedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.addedBackground') });
+const modifiedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.modifiedBackground') });
+/** Deleted lines: a red bar on the line after the deletion, with a small wedge at its top. No scrollbar ticks (the editor draws its own). */
+const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground'),
+  before: { contentText: '', width: '0', height: '0', textDecoration: 'none; position: absolute; margin-left: -2px; margin-top: -4px; border-left: 6px solid var(--vscode-editorGutter-deletedBackground); border-top: 4px solid transparent; border-bottom: 4px solid transparent;' } });
 const sameCommitDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerLane: vscode.OverviewRulerLane.Center });
 const statusItem = vscode.window.createStatusBarItem('gitKitchen.blame', vscode.StatusBarAlignment.Left, 50);
 statusItem.name = 'Git Kitchen Blame';
@@ -715,7 +726,7 @@ function registerHistory() {
     await vscode.env.clipboard.writeText(url); vscode.window.setStatusBarMessage(`Copied ${url}`, 4000); });
   cmd('gitKitchen.commit.openOnGitHub', async (n: Node) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(n.data.root)}/commit/${n.data.sha}`)));
   cmd('gitKitchen.copyText', async (text: string) => { await vscode.env.clipboard.writeText(String(text)); vscode.window.setStatusBarMessage('Copied', 1500); });
-  cmd('gitKitchen.commit.copyMessage', async (a: { root: string; sha: string }) => { await vscode.env.clipboard.writeText((await git(a.root, 'log', '-1', '--format=%B', a.sha)).trim()); vscode.window.setStatusBarMessage('Copied commit message', 1500); });
+  cmd('gitKitchen.commit.copyMessage', async (n: any) => { const a: { root: string; sha: string } = commitArg(n); await vscode.env.clipboard.writeText((await git(a.root, 'log', '-1', '--format=%B', a.sha)).trim()); vscode.window.setStatusBarMessage('Copied commit message', 1500); });
   cmd('gitKitchen.commit.search', async (a?: { root: string; sha: string }) => {
     const r = a?.root ?? await root(); const q = (a as any)?.direct ? a!.sha : await vscode.window.showInputBox({ title: 'Search Commits', prompt: 'SHA, message text or author', value: a?.sha?.slice(0, 7) }); if (!q) return;
     const bySha = /^[0-9a-f]{4,40}$/i.test(q) ? P.parseLog(await git(r, 'log', '--all', '-n', '1', `--format=${P.LOG_FORMAT}`, q, '--').catch(() => '')) : [];
@@ -723,7 +734,7 @@ function registerHistory() {
     const seen = new Set<string>(); const items = found.filter(c => !seen.has(c.sha) && seen.add(c.sha)).map(c => ({ label: c.subject, description: `${c.short} · ${c.author} · ${P.relativeTime(Date.parse(c.date) / 1000)}`, sha: c.sha }));
     const pick = await vscode.window.showQuickPick(items, { title: `Commits matching "${q}"`, matchOnDescription: true }); if (pick) await openCommitDiff({ root: r, sha: pick.sha });
   });
-  cmd('gitKitchen.commit.openOnRemote', async (a: { root: string; sha: string }) => vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(a.root)}/commit/${a.sha}`)));
+  cmd('gitKitchen.commit.openOnRemote', async (n: any) => { const a = commitArg(n); return vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(a.root)}/commit/${a.sha}`)); });
   cmd('gitKitchen.blame.comparePrevious', async (a: { root: string; sha: string; file: string }) => {
     const prev = (await git(a.root, 'rev-parse', '--verify', '-q', `${a.sha}^`).catch(() => '')).trim();
     await diffFile(a.root, prev || undefined, undefined, a.file);
@@ -745,6 +756,30 @@ function registerHistory() {
   });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
+  registerCommitActions();
+  registerCommitsToolbar();
+}
+/** A commit row's node, or a plain { root, sha } from a hover link: both give { root, sha }. */
+function commitArg(n: any): { root: string; sha: string; file?: string } { return n?.data?.sha ? n.data : n; }
+/**
+ * Hover buttons on commit rows (declared as `inline` entries under `view/item/context` in package.json).
+ * To add one: declare the command (title, icon), hide it in `commandPalette`, add an `inline@N` menu entry
+ * (with `alt` for the Alt variant), then register its handler here.
+ */
+function registerCommitActions() {
+  cmd('gitKitchen.commit.undo', async (n: Node) => {
+    const { root: r, sha } = commitArg(n); const head = (await git(r, 'rev-parse', 'HEAD')).trim();
+    if (head !== sha) { vscode.window.showInformationMessage('Only the latest commit can be undone.'); return; }
+    if (!await git(r, 'rev-parse', '--verify', '-q', 'HEAD~1').catch(() => '')) { vscode.window.showInformationMessage('This is the first commit; there is nothing to undo to.'); return; }
+    await git(r, 'reset', '--soft', 'HEAD~1'); refreshAll(); vscode.window.setStatusBarMessage(`Undid ${sha.slice(0, 7)}; its changes are staged`, 4000);
+  });
+  cmd('gitKitchen.commit.copyRemoteUrl', async (n: Node) => { const a = commitArg(n); const url = `${await webUrl(a.root)}/commit/${a.sha}`;
+    await vscode.env.clipboard.writeText(url); vscode.window.setStatusBarMessage(`Copied ${url}`, 4000); });
+  cmd('gitKitchen.commit.compareHead', async (n: Node) => { const a = commitArg(n); await compareRefs(a.root, 'HEAD', a.sha, `HEAD ↔ ${a.sha.slice(0, 8)}`); });
+  const withWorkingTree = async (n: Node) => { const a = commitArg(n); await compareCommitWorking({ root: a.root, sha: a.sha }); };
+  cmd('gitKitchen.commit.compareWorkingTree', withWorkingTree);
+  cmd('gitKitchen.commit.openAllChangesWorking', withWorkingTree);
+  cmd('gitKitchen.commit.openAllChanges', async (n: Node) => { const a = commitArg(n); await openCommitDiff({ root: a.root, sha: a.sha }); });
 }
 
 // ---------- Worktrees ----------
@@ -1097,3 +1132,25 @@ export function deactivate() {}
 // Exposed for the smoke test.
 const views: Record<string, vscode.TreeView<Node>> = {};
 export const _test = { setBranchPrs: (prs: P.BranchPrInfo[]) => { mockBranchPrs = prs; }, branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+
+/**
+ * Commits view title bar: icon buttons (`navigation@N`) and the "..." menu (other groups) in package.json.
+ * To add one: declare the command, hide it in `commandPalette`, add a `view/title` line, register its handler here.
+ */
+function registerCommitsToolbar() {
+  const setCfg = (key: string, v: unknown) => vscode.workspace.getConfiguration('gitKitchen').update(key, v, vscode.ConfigurationTarget.Global);
+  cmd('gitKitchen.commits.pull', async () => { const r = await root(); await withProgress('Pulling', () => git(r, 'pull', '--ff-only')); refreshAll(); });
+  cmd('gitKitchen.commits.push', async () => vscode.commands.executeCommand('gitKitchen.branch.push'));
+  cmd('gitKitchen.commits.fetch', async () => { const r = await root(); await withProgress('Fetching', () => git(r, 'fetch', '--all', '--prune')); refreshAll(); });
+  cmd('gitKitchen.commits.switchBranch', async () => vscode.commands.executeCommand('gitKitchen.branch.switch'));
+  cmd('gitKitchen.commits.filterAuthor', async () => {
+    const v = await vscode.window.showInputBox({ title: 'Filter Commits by Author', prompt: 'Name or email; leave empty to show everyone', value: commitsAuthor }); if (v === undefined) return;
+    commitsAuthor = v.trim(); const view = views['gitKitchen.commits']; if (view) view.description = commitsAuthor ? `author: ${commitsAuthor}` : undefined; refreshAll();
+  });
+  cmd('gitKitchen.commits.viewFilesAsList', () => setCfg('files.layout', 'list'));
+  cmd('gitKitchen.commits.viewFilesAsTree', () => setCfg('files.layout', 'tree'));
+  cmd('gitKitchen.commits.hideAvatars', () => setCfg('avatars', false));
+  cmd('gitKitchen.commits.showAvatars', () => setCfg('avatars', true));
+  cmd('gitKitchen.commits.hideMerges', () => setCfg('commits.hideMerges', true));
+  cmd('gitKitchen.commits.showMerges', () => setCfg('commits.hideMerges', false));
+}

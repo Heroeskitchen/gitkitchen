@@ -343,7 +343,8 @@
       {
         "command": "gitKitchen.commit.copySha",
         "title": "Copy SHA",
-        "category": "Git Kitchen"
+        "category": "Git Kitchen",
+        "icon": "$(copy)"
       },
       {
         "command": "gitKitchen.commit.search",
@@ -353,7 +354,7 @@
       },
       {
         "command": "gitKitchen.commit.copyMessage",
-        "title": "Copy Commit Message",
+        "title": "Copy Message",
         "category": "Git Kitchen",
         "icon": "$(copy)"
       },
@@ -547,6 +548,98 @@
         "command": "gitKitchen.updateFromGitHub",
         "title": "Update from GitHub",
         "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.undo",
+        "title": "Undo Commit",
+        "category": "Git Kitchen",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "gitKitchen.commit.copyRemoteUrl",
+        "title": "Copy Remote Commit URL",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.compareHead",
+        "title": "Compare to/from HEAD",
+        "category": "Git Kitchen",
+        "icon": "$(compare-changes)"
+      },
+      {
+        "command": "gitKitchen.commit.compareWorkingTree",
+        "title": "Compare Working Tree to Here",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.openAllChanges",
+        "title": "Open All Changes",
+        "category": "Git Kitchen",
+        "icon": "$(files)"
+      },
+      {
+        "command": "gitKitchen.commit.openAllChangesWorking",
+        "title": "Open All Changes with Working Tree",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.push",
+        "title": "Push",
+        "category": "Git Kitchen",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "gitKitchen.commits.pull",
+        "title": "Pull",
+        "category": "Git Kitchen",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "gitKitchen.commits.fetch",
+        "title": "Fetch",
+        "category": "Git Kitchen",
+        "icon": "$(repo-fetch)"
+      },
+      {
+        "command": "gitKitchen.commits.switchBranch",
+        "title": "Switch Branch…",
+        "category": "Git Kitchen",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "gitKitchen.commits.filterAuthor",
+        "title": "Filter Commits by Author…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.viewFilesAsList",
+        "title": "View Files as List",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.viewFilesAsTree",
+        "title": "View Files as Tree",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.hideAvatars",
+        "title": "Hide Avatars",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.showAvatars",
+        "title": "Show Avatars",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.hideMerges",
+        "title": "Hide Merge Commits",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commits.showMerges",
+        "title": "Show Merge Commits",
+        "category": "Git Kitchen"
       }
     ],
     "menus": {
@@ -554,7 +647,7 @@
         {
           "command": "gitKitchen.refresh",
           "when": "view == gitKitchen.commits",
-          "group": "navigation@9"
+          "group": "navigation@5"
         },
         {
           "command": "gitKitchen.refresh",
@@ -650,6 +743,61 @@
           "command": "gitKitchen.merged.reviewAll",
           "when": "view == gitKitchen.merged",
           "group": "navigation@1"
+        },
+        {
+          "command": "gitKitchen.commits.pull",
+          "when": "view == gitKitchen.commits",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitKitchen.commits.push",
+          "when": "view == gitKitchen.commits",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitKitchen.commits.fetch",
+          "when": "view == gitKitchen.commits",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitKitchen.commits.switchBranch",
+          "when": "view == gitKitchen.commits",
+          "group": "navigation@4"
+        },
+        {
+          "command": "gitKitchen.commits.filterAuthor",
+          "when": "view == gitKitchen.commits",
+          "group": "1_filter@1"
+        },
+        {
+          "command": "gitKitchen.commits.viewFilesAsList",
+          "when": "view == gitKitchen.commits && config.gitKitchen.files.layout != list",
+          "group": "2_files@1"
+        },
+        {
+          "command": "gitKitchen.commits.viewFilesAsTree",
+          "when": "view == gitKitchen.commits && config.gitKitchen.files.layout == list",
+          "group": "2_files@2"
+        },
+        {
+          "command": "gitKitchen.commits.hideAvatars",
+          "when": "view == gitKitchen.commits && config.gitKitchen.avatars",
+          "group": "3_show@1"
+        },
+        {
+          "command": "gitKitchen.commits.showAvatars",
+          "when": "view == gitKitchen.commits && !config.gitKitchen.avatars",
+          "group": "3_show@1"
+        },
+        {
+          "command": "gitKitchen.commits.hideMerges",
+          "when": "view == gitKitchen.commits && !config.gitKitchen.commits.hideMerges",
+          "group": "3_show@2"
+        },
+        {
+          "command": "gitKitchen.commits.showMerges",
+          "when": "view == gitKitchen.commits && config.gitKitchen.commits.hideMerges",
+          "group": "3_show@2"
         }
       ],
       "view/item/context": [
@@ -960,32 +1108,32 @@
         },
         {
           "command": "gitKitchen.openCommitDiff",
-          "when": "viewItem == commit || viewItem == historyCommit",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "1@1"
         },
         {
           "command": "gitKitchen.history.compareWorking",
-          "when": "viewItem == commit || viewItem == historyCommit",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "1@2"
         },
         {
           "command": "gitKitchen.commit.openAllFiles",
-          "when": "viewItem == commit || viewItem == historyCommit",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "1@3"
         },
         {
           "command": "gitKitchen.commit.copyLink",
-          "when": "viewItem == commit || viewItem == historyCommit",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@1"
         },
         {
           "command": "gitKitchen.commit.copySha",
-          "when": "viewItem == commit || viewItem == historyCommit",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@2"
         },
         {
           "command": "gitKitchen.commit.openOnGitHub",
-          "when": "viewItem == commit || viewItem == historyCommit",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@3"
         },
         {
@@ -1017,6 +1165,35 @@
           "command": "gitKitchen.operation.abort",
           "when": "view == gitKitchen.commits && viewItem =~ /^operation/",
           "group": "9_danger@1"
+        },
+        {
+          "command": "gitKitchen.commit.undo",
+          "when": "view == gitKitchen.commits && viewItem == commit.head",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitKitchen.commit.openAllChanges",
+          "alt": "gitKitchen.commit.openAllChangesWorking",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitKitchen.commit.compareHead",
+          "alt": "gitKitchen.commit.compareWorkingTree",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "inline@3"
+        },
+        {
+          "command": "gitKitchen.commit.copySha",
+          "alt": "gitKitchen.commit.copyMessage",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "inline@4"
+        },
+        {
+          "command": "gitKitchen.commit.openOnRemote",
+          "alt": "gitKitchen.commit.copyRemoteUrl",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "inline@5"
         }
       ],
       "editor/title": [
@@ -1389,6 +1566,74 @@
         {
           "command": "gitKitchen.explorer.clearDefaultWorkspace",
           "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.undo",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.copyRemoteUrl",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.compareHead",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.compareWorkingTree",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.openAllChanges",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.openAllChangesWorking",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.push",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.pull",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.fetch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.switchBranch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.filterAuthor",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.viewFilesAsList",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.viewFilesAsTree",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.hideAvatars",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.showAvatars",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.hideMerges",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commits.showMerges",
+          "when": "false"
         }
       ]
     },
@@ -1664,6 +1909,11 @@
           "default": "",
           "scope": "resource",
           "description": "Compare Remotes: the remote checked for those commits. Saved per folder when you choose or swap."
+        },
+        "gitKitchen.commits.hideMerges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide merge commits in the Commits view."
         }
       }
     }
