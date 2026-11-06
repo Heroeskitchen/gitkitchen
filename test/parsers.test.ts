@@ -572,39 +572,77 @@ describe('isNewerVersion', () => {
   });
 });
 
-describe('pull request state and merge guard', () => {
-  const base = { isDraft: false, reviewDecision: '', checks: 'pass' as const, mergeable: 'MERGEABLE' };
-  it('picks one state by priority', () => {
-    expect(p.prState(base)).toMatchObject({ kind: 'mergeable', label: 'Ready to merge', icon: 'check' });
-    expect(p.prState({ ...base, mergeable: 'CONFLICTING' })).toMatchObject({ kind: 'blocked', label: 'Blocked: conflicts' });
-    expect(p.prState({ ...base, checks: 'fail', reviewDecision: 'REVIEW_REQUIRED' })).toMatchObject({ kind: 'blocked', label: 'Blocked: checks failing' });
-    expect(p.prState({ ...base, reviewDecision: 'REVIEW_REQUIRED' })).toMatchObject({ kind: 'needs-review', icon: 'eye' });
-    expect(p.prState({ ...base, reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({ kind: 'follow-up', label: 'Changes requested' });
-    expect(p.prState({ ...base, isDraft: true })).toMatchObject({ kind: 'follow-up', label: 'Draft' });
-    expect(p.prState({ ...base, checks: 'pending' })).toMatchObject({ kind: 'follow-up', label: 'Checks running' });
-    expect(p.prState({ ...base, mergeable: 'UNKNOWN' })).toMatchObject({ kind: 'follow-up' });
+describe('merge confirm', () => {
+  const pr = { number: 7, title: 'Fix it', headRefName: 'x', baseRefName: 'main', url: '', isDraft: false, reviewDecision: 'APPROVED', author: 'a', checks: 'pass' as const, mergeable: 'MERGEABLE' };
+  it('lists nothing in the way for a ready pull request', () => {
+    expect(p.mergeBlockers(pr)).toEqual([]);
+    expect(p.mergeConfirmText(pr)).toBe('#7 "Fix it" into main\nChecks: pass · approved · mergeable');
   });
-  it('blocks drafts and conflicts, warns on the rest', () => {
-    expect(p.mergeGuard(base)).toEqual({ warnings: [] });
-    expect(p.mergeGuard({ ...base, isDraft: true }).block).toMatch(/draft/);
-    expect(p.mergeGuard({ ...base, mergeable: 'CONFLICTING' }).block).toMatch(/conflicts/);
-    const g = p.mergeGuard({ ...base, checks: 'fail', reviewDecision: 'CHANGES_REQUESTED' });
-    expect(g.block).toBeUndefined(); expect(g.warnings).toHaveLength(2);
-    expect(p.mergeGuard({ ...base, checks: 'pending', reviewDecision: 'REVIEW_REQUIRED', mergeable: 'UNKNOWN' }).warnings).toHaveLength(3);
+  it('says why a pull request is not ready', () => {
+    expect(p.mergeBlockers({ ...pr, isDraft: true, mergeable: 'CONFLICTING', checks: 'fail', reviewDecision: 'CHANGES_REQUESTED' }))
+      .toEqual(['it is a draft', 'it has merge conflicts', 'checks are failing', 'changes were requested']);
+    expect(p.mergeConfirmText({ ...pr, checks: 'pending', reviewDecision: 'REVIEW_REQUIRED' })).toContain('Not ready: checks are still running; a review is required.');
   });
 });
 
-describe('patch and PR file helpers', () => {
+describe('prWorktreeBranch', () => {
+  it('names the local branch after the pull request number', () => {
+    expect(p.prWorktreeBranch(42)).toBe('pr-42');
+  });
+});
+
+describe('patchArgs', () => {
+  it('builds the commit and stash patch commands', () => {
+    expect(p.patchArgs.commit('abc')).toEqual(['show', '--format=', '-M', '--binary', '-m', '--first-parent', 'abc']);
+    expect(p.patchArgs.stash('stash@{1}')).toEqual(['stash', 'show', '-p', '-M', '--binary', 'stash@{1}']);
+  });
+});
+
+describe('branchPrBadge', () => {
+  const pr = { number: 7, title: 't', headRefName: 'x', baseRefName: 'main', url: '', isDraft: false, reviewDecision: '', author: 'a', checks: 'none' as const, mergeable: '' };
+  it('shows the badge only when enabled and a pull request exists', () => {
+    expect(p.branchPrBadge(pr, true)).toBe('#7 · checks none');
+    expect(p.branchPrBadge(pr, false)).toBe('');
+    expect(p.branchPrBadge(undefined, true)).toBe('');
+  });
+});
+
+describe('prStatus', () => {
+  const base = { isDraft: false, mergeable: 'MERGEABLE', checks: 'pass' as const, reviewDecision: 'APPROVED' };
+  it('picks one state in priority order', () => {
+    expect(p.prStatus({ ...base, isDraft: true, mergeable: 'CONFLICTING' })).toBe('draft');
+    expect(p.prStatus({ ...base, mergeable: 'CONFLICTING' })).toBe('blocked');
+    expect(p.prStatus({ ...base, checks: 'fail' })).toBe('blocked');
+    expect(p.prStatus({ ...base, reviewDecision: 'CHANGES_REQUESTED' })).toBe('changes requested');
+    expect(p.prStatus({ ...base, reviewDecision: 'REVIEW_REQUIRED' })).toBe('needs review');
+    expect(p.prStatus({ ...base, checks: 'pending' })).toBe('checks pending');
+    expect(p.prStatus(base)).toBe('ready to merge');
+  });
+  it('treats unknown merge state and no review as ready', () => {
+    expect(p.prStatus({ ...base, mergeable: 'UNKNOWN', reviewDecision: '', checks: 'none' })).toBe('ready to merge');
+  });
+});
+
+describe('remoteCheckoutArgs', () => {
+  it('fetches the branch before creating the tracking branch', () => {
+    expect(p.remoteCheckoutArgs('origin/feat/x')).toEqual({ fetch: ['fetch', 'origin', 'feat/x'], switch: ['switch', '--track', 'origin/feat/x'] });
+  });
+  it('refuses a name without a remote and branch', () => {
+    expect(() => p.remoteCheckoutArgs('main')).toThrow();
+    expect(() => p.remoteCheckoutArgs('origin/')).toThrow();
+  });
+});
+
+describe('patch helpers for files and comparisons', () => {
+  it('limits a commit patch to one file', () => {
+    expect(p.patchArgs.commit('abc', 'a/b.ts')).toEqual(['show', '--format=', '-M', '--binary', '-m', '--first-parent', 'abc', '--', 'a/b.ts']);
+  });
+  it('builds range patches against a ref or the working tree', () => {
+    expect(p.patchArgs.range('A', 'B')).toEqual(['diff', '-M', '--binary', 'A', 'B']);
+    expect(p.patchArgs.range('A')).toEqual(['diff', '-M', '--binary', 'A']);
+  });
   it('counts files in a patch', () => {
-    expect(p.patchSummary('diff --git a/x b/x\n--- a/x\n+++ b/x\ndiff --git a/y b/y\n')).toEqual({ files: 2, empty: false });
-    expect(p.patchSummary('  \n')).toEqual({ files: 0, empty: true });
-  });
-  it('parses PR files, tolerating bad input', () => {
-    expect(p.parsePrFiles('{"files":[{"path":"a/b.ts","additions":3,"deletions":1}]}')).toEqual([{ path: 'a/b.ts', additions: 3, deletions: 1 }]);
-    expect(p.parsePrFiles('{}')).toEqual([]); expect(p.parsePrFiles('nope')).toEqual([]);
-  });
-  it('names the remote of a tracking ref', () => { expect(p.remoteOf('origin/feature/x')).toBe('origin'); });
-  it('carries isCrossRepository from gh', () => {
-    expect(p.parsePrs('[{"number":1,"isCrossRepository":true}]')[0].isCrossRepository).toBe(true);
+    expect(p.patchSummary('diff --git a/x b/x\n--- a/x\ndiff --git a/y b/y\n')).toEqual({ files: 2, empty: false });
+    expect(p.patchSummary(' \n')).toEqual({ files: 0, empty: true });
   });
 });

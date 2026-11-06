@@ -2,7 +2,7 @@
   "name": "gitkitchen",
   "displayName": "Git Kitchen",
   "description": "Branches, remotes, stashes, worktrees, pull requests, blame and history for the editor.",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "publisher": "heroeskitchen",
   "license": "MIT",
   "repository": {
@@ -237,28 +237,23 @@
         "category": "Git Kitchen"
       },
       {
-        "command": "gitKitchen.pr.merge",
-        "title": "Merge Pull Request…",
-        "category": "Git Kitchen"
-      },
-      {
-        "command": "gitKitchen.stash.copyPatch",
-        "title": "Copy Changes (Patch)",
-        "category": "Git Kitchen"
-      },
-      {
-        "command": "gitKitchen.commit.copyPatch",
-        "title": "Copy Changes (Patch)",
-        "category": "Git Kitchen"
-      },
-      {
-        "command": "gitKitchen.pr.openFile",
-        "title": "Open Changes",
-        "category": "Git Kitchen"
-      },
-      {
         "command": "gitKitchen.pr.openInWorktree",
         "title": "Open in Worktree…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.pr.merge",
+        "title": "Merge…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.pr.squash",
+        "title": "Squash and Merge…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.pr.rebase",
+        "title": "Rebase and Merge…",
         "category": "Git Kitchen"
       },
       {
@@ -348,6 +343,16 @@
       {
         "command": "gitKitchen.commit.copyLink",
         "title": "Copy Link",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.copyPatch",
+        "title": "Copy Changes (Patch)",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.copyPatch",
+        "title": "Copy Changes (Patch)",
         "category": "Git Kitchen"
       },
       {
@@ -1087,6 +1092,11 @@
           "group": "1@1"
         },
         {
+          "command": "gitKitchen.stash.copyPatch",
+          "when": "view == gitKitchen.stashes && (viewItem == stash || viewItem == stashFile)",
+          "group": "1@3"
+        },
+        {
           "command": "gitKitchen.stash.pop",
           "when": "view == gitKitchen.stashes && viewItem == stash",
           "group": "1@2"
@@ -1135,6 +1145,11 @@
           "command": "gitKitchen.commit.copySha",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@2"
+        },
+        {
+          "command": "gitKitchen.commit.copyPatch",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/ || viewItem == commitFile",
+          "group": "2@4"
         },
         {
           "command": "gitKitchen.commit.openOnGitHub",
@@ -1199,21 +1214,6 @@
           "alt": "gitKitchen.commit.copyRemoteUrl",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "inline@5"
-        },
-        {
-          "command": "gitKitchen.pr.openFile",
-          "when": "view == gitKitchen.prs && viewItem == prFile",
-          "group": "1@1"
-        },
-        {
-          "command": "gitKitchen.commit.copyPatch",
-          "when": "viewItem =~ /^(commit|historyCommit)\\b/ || viewItem == commitFile",
-          "group": "2@4"
-        },
-        {
-          "command": "gitKitchen.stash.copyPatch",
-          "when": "view == gitKitchen.stashes && (viewItem == stash || viewItem == stashFile)",
-          "group": "1@4"
         }
       ],
       "editor/title": [
@@ -1311,6 +1311,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "gitKitchen.commit.copyPatch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.copyPatch",
+          "when": "false"
+        },
         {
           "command": "gitKitchen.branch.rename",
           "when": "false"
@@ -1440,7 +1448,19 @@
           "when": "false"
         },
         {
+          "command": "gitKitchen.pr.openInWorktree",
+          "when": "false"
+        },
+        {
           "command": "gitKitchen.pr.merge",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.pr.squash",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.pr.rebase",
           "when": "false"
         },
         {
@@ -1646,22 +1666,6 @@
         {
           "command": "gitKitchen.commits.showMerges",
           "when": "false"
-        },
-        {
-          "command": "gitKitchen.pr.openInWorktree",
-          "when": "false"
-        },
-        {
-          "command": "gitKitchen.pr.openFile",
-          "when": "false"
-        },
-        {
-          "command": "gitKitchen.commit.copyPatch",
-          "when": "false"
-        },
-        {
-          "command": "gitKitchen.stash.copyPatch",
-          "when": "false"
         }
       ]
     },
@@ -1837,10 +1841,10 @@
           "default": true,
           "description": "Color branch names like their icon: green when in sync and recently pushed or pulled, yellow with unpushed commits, red when behind."
         },
-        "gitKitchen.branches.showPullRequests": {
+        "gitKitchen.branches.showPrBadges": {
           "type": "boolean",
           "default": true,
-          "description": "Show pull request badges and state on branch rows, including the current branch. Turn off to hide them and skip the GitHub lookup."
+          "description": "Show the pull request badge and icon on branch rows."
         },
         "gitKitchen.avatars": {
           "type": "boolean",
