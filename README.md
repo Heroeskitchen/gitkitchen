@@ -11,7 +11,7 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
   files, shown as a folder tree (single-folder chains compacted) with M/A/D/R badges, and click one for a
   side-by-side diff against the parent. While a merge, rebase, cherry-pick or revert is in progress, a row at the top
   shows the operation and the conflicts remaining, with Continue, Skip (rebase only) and Abort (after a confirm).
-  Worktrees are supported.
+  Right-click a commit for Copy Changes (Patch). Worktrees are supported.
 - **Branches**: switch, create, rename, delete, merge into current, rebase current onto, reset current to tip,
   pull, fetch, change upstream, create tag, open on remote, copy name, and compare with upstream, HEAD,
   common base or the working tree (or select any two branches to compare). Branches are grouped into folders by their
@@ -24,7 +24,7 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
   branch and create or open a pull request on the others.
 - **Remotes**: fetch, pull and push per remote; expand to browse remote branches (grouped by prefix) and check them out.
 - **Stashes**: save (optionally with untracked files), apply, pop, drop, view changed files as diffs,
-  hover preview, and stash-and-switch in one step.
+  hover preview, copy changes as a patch, and stash-and-switch in one step.
 - **Worktrees**: each worktree with its branch, dirty marker and ahead/behind counts. Create a worktree from
   any branch (default folder `<parent>/<repo>.worktrees/<branch>`, or choose one) or from a new branch; open in a new or
   the current window, reveal, open a terminal, lock/unlock, move, remove and prune.
