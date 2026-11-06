@@ -392,9 +392,10 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const pr = prs.find(p => p.headRefName === b.name);
   const hasWt = !!b.worktreePath && !b.current;
   const x = new Node(label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
-  x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean));
+  const showPr = vscode.workspace.getConfiguration('gitKitchen').get('branches.showPrBadges', true);
+  x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [P.branchPrBadge(pr, showPr), hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);
-  const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
+  const st = P.branchState({ current: b.current, pr: showPr ? P.prForBranch(allPrs, b.name) : undefined, mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
   const brPr = P.prForBranch(allPrs, b.name);
   const mergedRow = st.icon === 'git-merge';
   // Merged branches: default label, merge glyph with a purple dot.
@@ -515,7 +516,7 @@ function registerRemotes() {
   cmd('gitKitchen.remote.pull', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim(); await withProgress(`Pulling ${cur} from ${n.data.name}`, () => git(r, 'pull', '--ff-only', n.data.name, cur)); refreshAll(); });
   cmd('gitKitchen.remote.push', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim();
     if (!await confirm(`Push ${cur} to ${n.data.name}?`, 'Push')) return; await withProgress(`Pushing ${cur}`, () => git(r, 'push', '-u', n.data.name, cur)); refreshAll(); });
-  cmd('gitKitchen.remoteBranch.checkout', async (n: Node) => { const r = await root(); await git(r, 'switch', '--track', n.data.name); refreshAll(); });
+  cmd('gitKitchen.remoteBranch.checkout', async (n: Node) => { const r = await root(); const a = P.remoteCheckoutArgs(n.data.name); await withProgress(`Fetching ${n.data.name}`, () => git(r, ...a.fetch)); await git(r, ...a.switch); refreshAll(); });
   cmd('gitKitchen.remoteBranch.compareHead', async (n: Node) => { const r = await root(); await compareRefs(r, 'HEAD', n.data.name, `HEAD ↔ ${n.data.name}`); });
 }
 
@@ -548,6 +549,7 @@ function registerStashes() {
   cmd('gitKitchen.stash.applyRef', async (ref: string) => { const r = await root(); await git(r, 'stash', 'apply', ref); refreshAll(); });
   cmd('gitKitchen.stash.apply', async (n: Node) => { const r = await root(); await git(r, 'stash', 'apply', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.pop', async (n: Node) => { const r = await root(); await git(r, 'stash', 'pop', n.data.stash.ref); refreshAll(); });
+  cmd('gitKitchen.stash.copyPatch', async (n: Node) => { const r = await root(); await vscode.env.clipboard.writeText(await git(r, ...P.patchArgs.stash(n.data.stash.ref))); vscode.window.setStatusBarMessage('Copied stash patch', 2000); });
   cmd('gitKitchen.stash.drop', async (n: Node) => { const r = await root(); if (!await confirm(`Delete ${n.data.stash.ref}: ${n.data.stash.message}?`, 'Delete')) return; await git(r, 'stash', 'drop', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.openFile', async (n: Node) => { const r = n.data.root; const parent = await parentOf(r, n.data.sha);
     // Untracked files live in the third parent; fall back to an empty left side.
@@ -754,6 +756,7 @@ function registerHistory() {
     const v = views['gitKitchen.commits']; const nodes = await refCommits(a.root, 'HEAD', 'commits'); const hit = nodes.find(x => x.data?.sha === a.sha);
     if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
   });
+  cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await vscode.env.clipboard.writeText(await git(a.root, ...P.patchArgs.commit(a.sha))); vscode.window.setStatusBarMessage('Copied commit patch', 2000); });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
@@ -861,7 +864,7 @@ async function loadPrs(n?: Node): Promise<Node[]> {
     const prs = P.pinSort(await listPrs(r, true), { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
     return prs.map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
-    x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
+    x.description = `${P.prStatus(p)} · ${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
     x.iconPath = p.isDraft ? icon('git-pull-request-draft', 'descriptionForeground') : icon('git-pull-request', 'gitKitchen.prOpenForeground'); return x; });
   }
   if (n.kind === 'pr') {
