@@ -738,3 +738,9 @@ export function isNewerVersion(a: string, b: string): boolean {
   for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0); }
   return false;
 }
+
+/** Git argument lists that print a commit's or a stash's changes as a patch (renames detected, binary included). */
+export const patchArgs = {
+  commit: (sha: string) => ['show', '--format=', '-M', '--binary', '-m', '--first-parent', sha],
+  stash: (ref: string) => ['stash', 'show', '-p', '-M', '--binary', ref],
+};

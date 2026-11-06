@@ -571,3 +571,10 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('patchArgs', () => {
+  it('builds the commit and stash patch commands', () => {
+    expect(p.patchArgs.commit('abc')).toEqual(['show', '--format=', '-M', '--binary', '-m', '--first-parent', 'abc']);
+    expect(p.patchArgs.stash('stash@{1}')).toEqual(['stash', 'show', '-p', '-M', '--binary', 'stash@{1}']);
+  });
+});
