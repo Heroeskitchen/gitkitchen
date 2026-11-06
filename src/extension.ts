@@ -70,9 +70,12 @@ async function compareRefs(r: string, left: string, right?: string, label?: stri
   const args = ['diff', '--name-status', '-M', left]; if (right) args.push(right);
   const lines = P.parseNameList(await git(r, ...args));
   if (!lines.length) { vscode.window.showInformationMessage(`No differences${label ? ' ' + label : ''}.`); return; }
-  const items = lines.map(l => { const parts = l.split('\t'); return { label: parts[parts.length - 1], description: parts[0], old: parts.length > 2 ? parts[1] : undefined }; });
-  const pick = await vscode.window.showQuickPick(items, { title: `Changed files${label ? ' — ' + label : ''}`, matchOnDescription: true });
-  if (pick) await diffFile(r, left, right, pick.label, pick.old);
+  const items = lines.map(l => { const parts = l.split('\t'); return { label: parts[parts.length - 1], description: parts[0], old: parts.length > 2 ? parts[1] : undefined, all: false }; });
+  const copyAll = { label: '$(copy) Copy patch of all changes', description: `${lines.length} ${lines.length === 1 ? 'file' : 'files'}`, old: undefined, all: true };
+  const pick = await vscode.window.showQuickPick([copyAll, ...items], { title: `Changed files${label ? ' — ' + label : ''}`, matchOnDescription: true });
+  if (!pick) return;
+  if (pick.all) { await copyPatch(await git(r, 'diff', '--binary', '-M', left, ...(right ? [right] : [])), label ?? 'the comparison'); return; }
+  await diffFile(r, left, right, pick.label, pick.old);
 }
 async function parentOf(r: string, sha: string): Promise<string> {
   try { return (await git(r, 'rev-parse', `${sha}^`)).trim(); } catch { return EMPTY_TREE; }
@@ -342,17 +345,25 @@ async function branchChildren(n: Node): Promise<Node[]> {
   }
   return [...out, ...await refCommits(r, ref, `b:${b.name}`)];
 }
+/** Fetch the ref's remote so the checkout starts from its latest commit, then create and switch to a tracking branch. */
+async function switchTrackingRemote(r: string, ref: string) {
+  const remote = P.remoteOf(ref);
+  try { await withProgress(`Fetching ${remote}`, () => git(r, 'fetch', remote)); }
+  catch (e: any) { out.appendLine(String(e?.message ?? e)); vscode.window.showWarningMessage(`Could not fetch ${remote}; checking out the last known ${ref}.`); }
+  await git(r, 'switch', '--track', ref);
+}
 async function loadBranches(n?: Node): Promise<Node[]> {
   if (n?.kind === 'syncGroup') return refCommits(n.data.root, n.data.range, n.data.key);
   if (n?.data?.branch) return branchChildren(n);
   if (n) return n.data.children ?? [];
   const r = await root();
   const bs = P.parseBranches(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=${P.BRANCH_FORMAT}`, 'refs/heads'));
-  let prs: P.PullRequest[] = []; try { prs = await listPrs(r); } catch { /* gh missing or not GitHub */ }
   const cfg = vscode.workspace.getConfiguration('gitKitchen'); const main = cfg.get<string>('mainBranch', 'main');
+  const showPrs = cfg.get('branches.showPullRequests', true);
+  let prs: P.PullRequest[] = []; if (showPrs) { try { prs = await listPrs(r); } catch { /* gh missing or not GitHub */ } }
   const opts: P.StalenessOptions = { agingDays: cfg.get('staleness.agingDays', 14), staleDays: cfg.get('staleness.staleDays', 60), behindCount: cfg.get('staleness.behindCount', 20) };
   const hasMain = bs.some(b => b.name === main);
-  const [statePrs, mergedOut] = await Promise.all([branchPrs(r), hasMain ? git(r, 'branch', '--merged', main, '--format=%(refname:short)').catch(() => '') : Promise.resolve('')]);
+  const [statePrs, mergedOut] = await Promise.all([showPrs ? branchPrs(r) : Promise.resolve<P.BranchPrInfo[]>([]), hasMain ? git(r, 'branch', '--merged', main, '--format=%(refname:short)').catch(() => '') : Promise.resolve('')]);
   merged = new Set(P.parseNameList(mergedOut).filter(x => x !== main)); mergedBase = main; allPrs = statePrs;
   syncTimes.clear();
   await Promise.all(bs.filter(b => b.upstream).map(async b => { const t = P.parseReflogTime(await git(r, 'reflog', 'show', '-n1', '--date=unix', '--format=%gd', `refs/remotes/${b.upstream}`).catch(() => '')); if (t) syncTimes.set(b.upstream!, t); }));
@@ -444,7 +455,7 @@ function registerBranches() {
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
   });
   cmd('gitKitchen.branch.switch', async (n: Node) => { const r = await root(); const b = n ? bn(n) : await pickBranch(r, 'Switch to', true); if (!b) return;
-    if (b.includes('/') && (await git(r, 'branch', '-r', '--list', b)).trim()) await git(r, 'switch', '--track', b); else await git(r, 'switch', b); refreshAll(); });
+    if (b.includes('/') && (await git(r, 'branch', '-r', '--list', b)).trim()) await switchTrackingRemote(r, b); else await git(r, 'switch', b); refreshAll(); });
   cmd('gitKitchen.branch.create', async (n?: Node) => { const r = await root(); const from = n ? bn(n) : 'HEAD'; const name = await askName(`New branch from ${from}`); if (!name) return;
     const sw = await vscode.window.showQuickPick(['Create and switch', 'Create only'], { title: name }); if (!sw) return;
     await git(r, ...(sw === 'Create only' ? ['branch', name, from] : ['switch', '-c', name, from])); refreshAll(); });
@@ -515,7 +526,7 @@ function registerRemotes() {
   cmd('gitKitchen.remote.pull', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim(); await withProgress(`Pulling ${cur} from ${n.data.name}`, () => git(r, 'pull', '--ff-only', n.data.name, cur)); refreshAll(); });
   cmd('gitKitchen.remote.push', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim();
     if (!await confirm(`Push ${cur} to ${n.data.name}?`, 'Push')) return; await withProgress(`Pushing ${cur}`, () => git(r, 'push', '-u', n.data.name, cur)); refreshAll(); });
-  cmd('gitKitchen.remoteBranch.checkout', async (n: Node) => { const r = await root(); await git(r, 'switch', '--track', n.data.name); refreshAll(); });
+  cmd('gitKitchen.remoteBranch.checkout', async (n: Node) => { const r = await root(); await switchTrackingRemote(r, n.data.name); refreshAll(); });
   cmd('gitKitchen.remoteBranch.compareHead', async (n: Node) => { const r = await root(); await compareRefs(r, 'HEAD', n.data.name, `HEAD ↔ ${n.data.name}`); });
 }
 
@@ -809,6 +820,10 @@ async function wtPathFromNode(n: Node): Promise<string> {
 async function worktreePathOf(r: string, branch: string): Promise<string | undefined> {
   return P.parseWorktrees(await git(r, 'worktree', 'list', '--porcelain')).find(w => w.branch === branch)?.path;
 }
+async function openWorktreeFolder(p: string) {
+  const open = await vscode.window.showQuickPick(['Open in New Window', 'Open Here'], { title: `Open worktree ${p}` }); if (!open) return;
+  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(p), { forceNewWindow: open === 'Open in New Window' });
+}
 async function createWorktree(r: string, branch: string, newBranch?: string, track = false) {
   const def = P.defaultWorktreePath(r, newBranch ?? branch);
   const choice = await vscode.window.showQuickPick([{ label: 'Default folder', description: def }, { label: 'Choose folder…' }], { title: `Worktree for ${newBranch ?? branch}` }); if (!choice) return;
@@ -853,6 +868,25 @@ function registerWorktrees() {
     if (!dry) { vscode.window.showInformationMessage('Nothing to prune.'); return; } if (!await confirm(`Prune stale worktree entries?\n\n${dry}`, 'Prune')) return; await git(r, 'worktree', 'prune'); refreshAll(); });
 }
 
+// ---------- Copy patch ----------
+async function copyPatch(text: string, what: string) {
+  const s = P.patchSummary(text); if (s.empty) { vscode.window.showInformationMessage(`No changes to copy for ${what}.`); return; }
+  await vscode.env.clipboard.writeText(text.endsWith('\n') ? text : text + '\n');
+  vscode.window.setStatusBarMessage(`Copied patch for ${what} (${s.files} ${s.files === 1 ? 'file' : 'files'})`, 4000);
+}
+async function commitPatch(r: string, sha: string, file?: string) {
+  const parent = await parentOf(r, sha);
+  return git(r, 'diff', '--binary', '-M', parent, sha, ...(file ? ['--', file] : []));
+}
+function registerPatches() {
+  cmd('gitKitchen.commit.copyPatch', async (n: Node) => { const a = commitArg(n); await copyPatch(await commitPatch(a.root, a.sha, a.file), a.file ? `${a.file} in ${a.sha.slice(0, 8)}` : `commit ${a.sha.slice(0, 8)}`); });
+  cmd('gitKitchen.stash.copyPatch', async (n: Node) => { const r = n.data.root; const file: string | undefined = n.data.file;
+    if (!n.data.stash) { await copyPatch(await commitPatch(r, n.data.sha, file), `${file} in the stash`); return; }
+    const ref: string = n.data.stash.ref;
+    const text = await git(r, 'stash', 'show', '-p', '--binary', '--include-untracked', ref).catch(() => git(r, 'stash', 'show', '-p', '--binary', ref));
+    await copyPatch(text, ref); });
+}
+
 // ---------- Pull requests ----------
 async function loadPrs(n?: Node): Promise<Node[]> {
   const r = await root();
@@ -861,30 +895,61 @@ async function loadPrs(n?: Node): Promise<Node[]> {
     const prs = P.pinSort(await listPrs(r, true), { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
     return prs.map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
-    x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
-    x.iconPath = p.isDraft ? icon('git-pull-request-draft', 'descriptionForeground') : icon('git-pull-request', 'gitKitchen.prOpenForeground'); return x; });
+    const st = P.prState(p);
+    x.description = `#${p.number} · ${st.label} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
+    x.iconPath = icon(st.icon, st.color); return x; });
   }
   if (n.kind === 'pr') {
+    const p = n.data.pr as P.PullRequest; const files = P.parsePrFiles(await gh(r, 'pr', 'view', String(p.number), '--json', 'files').catch(() => '{}'));
+    const head = new Node(`Files changed (${files.length})`, 'prFiles', { root: r, pr: p, files }, files.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+    head.iconPath = icon('files'); head.id = `pr:${p.number}:files`;
     const j = JSON.parse(await gh(r, 'pr', 'view', String(n.data.pr.number), '--json', 'commits'));
-    return (j.commits ?? []).map((c: any) => commitNode(r, { sha: c.oid, short: c.oid.slice(0, 7), author: c.authors?.[0]?.name ?? '', email: c.authors?.[0]?.email ?? '', date: c.committedDate, subject: c.messageHeadline, parents: [] }));
+    return [head, ...(j.commits ?? []).map((c: any) => commitNode(r, { sha: c.oid, short: c.oid.slice(0, 7), author: c.authors?.[0]?.name ?? '', email: c.authors?.[0]?.email ?? '', date: c.committedDate, subject: c.messageHeadline, parents: [] }))];
   }
+  if (n.kind === 'prFiles') return (n.data.files as P.PrFile[]).map(f => {
+    const x = new Node(path.basename(f.path), 'prFile', { root: r, pr: n.data.pr, file: f.path });
+    const dir = path.dirname(f.path); x.description = `${dir === '.' ? '' : dir + '  '}+${f.additions} −${f.deletions}`; x.tooltip = f.path; x.iconPath = vscode.ThemeIcon.File;
+    x.id = `pr:${n.data.pr.number}:f:${f.path}`; x.command = { command: 'gitKitchen.pr.openFile', title: 'Open Changes', arguments: [x] }; return x; });
   return [];
 }
-async function mergePr(n: Node, how: 'merge' | 'squash' | 'rebase') {
-  const p = n.data.pr as P.PullRequest; const label = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' }[how];
-  if (!await confirm(`${label} #${p.number} "${p.title}" into ${p.baseRefName}?\nChecks: ${p.checks}${p.reviewDecision ? ' · ' + p.reviewDecision.toLowerCase() : ''}`, label)) return;
-  await withProgress(`${label} #${p.number}`, () => gh(n.data.root, 'pr', 'merge', String(p.number), `--${how}`)); prCache = undefined; refreshAll();
+/** Re-read the PR so the guard and the confirm text use its state right now, not the cached row. */
+async function freshPr(r: string, p: P.PullRequest): Promise<P.PullRequest> {
+  try { return P.parsePrs('[' + await gh(r, 'pr', 'view', String(p.number), '--json', P.PR_FIELDS) + ']')[0] ?? p; } catch { return p; }
+}
+async function mergePr(n: Node, how?: 'merge' | 'squash' | 'rebase') {
+  const r = n.data.root as string;
+  if (!how) {
+    const pick = await vscode.window.showQuickPick([
+      { label: '$(git-merge) Merge', description: 'Create a merge commit', how: 'merge' as const },
+      { label: '$(git-commit) Squash and Merge', description: 'Combine all commits into one', how: 'squash' as const },
+      { label: '$(git-pull-request) Rebase and Merge', description: 'Replay the commits onto the base branch', how: 'rebase' as const },
+    ], { title: `Merge #${(n.data.pr as P.PullRequest).number}` }); if (!pick) return; how = pick.how;
+  }
+  const p = await freshPr(r, n.data.pr as P.PullRequest); const label = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' }[how];
+  const g = P.mergeGuard(p);
+  if (g.block) { await vscode.window.showWarningMessage(`#${p.number} cannot be merged. ${g.block}`, { modal: true }); return; }
+  const warn = g.warnings.length ? `\n\n${g.warnings.join('\n')}` : '';
+  if (!await confirm(`${label} #${p.number} "${p.title}" into ${p.baseRefName}?\n${P.prState(p).label}${warn}`, g.warnings.length ? `${label} anyway` : label)) return;
+  await withProgress(`${label} #${p.number}`, () => gh(r, 'pr', 'merge', String(p.number), `--${how}`)); prCache = undefined; refreshAll();
   vscode.window.showInformationMessage(`#${p.number} merged.`);
 }
 function registerPrs() {
   cmd('gitKitchen.pr.open', async (n: Node) => vscode.env.openExternal(vscode.Uri.parse((n.data.pr ?? n.data).url)));
   cmd('gitKitchen.pr.checkout', async (n: Node) => { await withProgress('Checking out PR', () => gh(n.data.root, 'pr', 'checkout', String(n.data.pr.number))); refreshAll(); });
-  cmd('gitKitchen.pr.merge', (n: Node) => mergePr(n, 'merge'));
-  cmd('gitKitchen.pr.squash', (n: Node) => mergePr(n, 'squash'));
-  cmd('gitKitchen.pr.rebase', (n: Node) => mergePr(n, 'rebase'));
+  cmd('gitKitchen.pr.merge', (n: Node) => mergePr(n));
   cmd('gitKitchen.pr.compare', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest;
     await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
     const base = (await git(r, 'merge-base', `origin/${p.baseRefName}`, head)).trim(); await compareRefs(r, base, head, `#${p.number}`); });
+  cmd('gitKitchen.pr.openFile', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest;
+    await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
+    const base = (await git(r, 'merge-base', `origin/${p.baseRefName}`, head)).trim(); await diffFile(r, base, head, n.data.file); });
+  cmd('gitKitchen.pr.openInWorktree', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest;
+    const existing = await worktreePathOf(r, p.headRefName);
+    if (existing && !p.isCrossRepository) { await openWorktreeFolder(existing); return; }
+    await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
+    const local = !p.isCrossRepository && !!(await git(r, 'rev-parse', '--verify', '-q', `refs/heads/${p.headRefName}`).catch(() => '')).trim();
+    if (local) await createWorktree(r, p.headRefName); else await createWorktree(r, head, p.isCrossRepository ? `pr-${p.number}` : p.headRefName);
+  });
   cmd('gitKitchen.pr.create', async (n?: Node) => {
     const r = await root(); const branch = n ? bn(n) : (await git(r, 'branch', '--show-current')).trim();
     const base = await vscode.window.showInputBox({ prompt: 'Base branch', value: vscode.workspace.getConfiguration('gitKitchen').get('mainBranch', 'main') }); if (!base) return;
@@ -1085,7 +1150,7 @@ export async function activate(c: vscode.ExtensionContext) {
   view('gitKitchen.merged', new Tree(loadMerged));
   view('gitKitchen.todos', new Tree(loadTodos));
   historyTree = new Tree(loadHistory); historyView = view('gitKitchen.history', historyTree);
-  registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerPrs(); registerDual(); registerMerged(); registerExplorer();
+  registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerPatches(); registerPrs(); registerDual(); registerMerged(); registerExplorer();
   cmd('gitKitchen.commits.loadMore', async (key = 'commits') => { refLimits.set(key, (refLimits.get(key) ?? 50) + 50); refreshAll(); });
   cmd('gitKitchen.diffFile', async (r: string, l: string | undefined, rt: string | undefined, f: string, old?: string) => {
     await diffFile(r, l, rt, f, old); });

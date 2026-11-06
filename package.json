@@ -238,17 +238,27 @@
       },
       {
         "command": "gitKitchen.pr.merge",
-        "title": "Merge…",
+        "title": "Merge Pull Request…",
         "category": "Git Kitchen"
       },
       {
-        "command": "gitKitchen.pr.squash",
-        "title": "Squash and Merge…",
+        "command": "gitKitchen.stash.copyPatch",
+        "title": "Copy Changes (Patch)",
         "category": "Git Kitchen"
       },
       {
-        "command": "gitKitchen.pr.rebase",
-        "title": "Rebase and Merge…",
+        "command": "gitKitchen.commit.copyPatch",
+        "title": "Copy Changes (Patch)",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.pr.openFile",
+        "title": "Open Changes",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.pr.openInWorktree",
+        "title": "Open in Worktree…",
         "category": "Git Kitchen"
       },
       {
@@ -1027,19 +1037,14 @@
           "group": "1_a@3"
         },
         {
+          "command": "gitKitchen.pr.openInWorktree",
+          "when": "view == gitKitchen.prs && viewItem == pr",
+          "group": "1_a@4"
+        },
+        {
           "command": "gitKitchen.pr.merge",
           "when": "view == gitKitchen.prs && viewItem == pr",
           "group": "2_m@1"
-        },
-        {
-          "command": "gitKitchen.pr.squash",
-          "when": "view == gitKitchen.prs && viewItem == pr",
-          "group": "2_m@2"
-        },
-        {
-          "command": "gitKitchen.pr.rebase",
-          "when": "view == gitKitchen.prs && viewItem == pr",
-          "group": "2_m@3"
         },
         {
           "command": "gitKitchen.remote.fetch",
@@ -1194,6 +1199,21 @@
           "alt": "gitKitchen.commit.copyRemoteUrl",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "inline@5"
+        },
+        {
+          "command": "gitKitchen.pr.openFile",
+          "when": "view == gitKitchen.prs && viewItem == prFile",
+          "group": "1@1"
+        },
+        {
+          "command": "gitKitchen.commit.copyPatch",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/ || viewItem == commitFile",
+          "group": "2@4"
+        },
+        {
+          "command": "gitKitchen.stash.copyPatch",
+          "when": "view == gitKitchen.stashes && (viewItem == stash || viewItem == stashFile)",
+          "group": "1@4"
         }
       ],
       "editor/title": [
@@ -1424,14 +1444,6 @@
           "when": "false"
         },
         {
-          "command": "gitKitchen.pr.squash",
-          "when": "false"
-        },
-        {
-          "command": "gitKitchen.pr.rebase",
-          "when": "false"
-        },
-        {
           "command": "gitKitchen.remote.fetch",
           "when": "false"
         },
@@ -1634,6 +1646,22 @@
         {
           "command": "gitKitchen.commits.showMerges",
           "when": "false"
+        },
+        {
+          "command": "gitKitchen.pr.openInWorktree",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.pr.openFile",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.copyPatch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.copyPatch",
+          "when": "false"
         }
       ]
     },
@@ -1809,6 +1837,11 @@
           "default": true,
           "description": "Color branch names like their icon: green when in sync and recently pushed or pulled, yellow with unpushed commits, red when behind."
         },
+        "gitKitchen.branches.showPullRequests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show pull request badges and state on branch rows, including the current branch. Turn off to hide them and skip the GitHub lookup."
+        },
         "gitKitchen.avatars": {
           "type": "boolean",
           "default": true,
@@ -1936,7 +1969,11 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["linkId", "targetPath", "targetBaseSha"],
+                "required": [
+                  "linkId",
+                  "targetPath",
+                  "targetBaseSha"
+                ],
                 "properties": {
                   "linkId": {
                     "type": "string",
@@ -1957,13 +1994,17 @@
                   },
                   "agentLaunch": {
                     "type": "string",
-                    "enum": ["denied"],
+                    "enum": [
+                      "denied"
+                    ],
                     "default": "denied",
                     "description": "Agent launch in the target stays denied. The target path is data only."
                   },
                   "agentApply": {
                     "type": "string",
-                    "enum": ["denied"],
+                    "enum": [
+                      "denied"
+                    ],
                     "default": "denied",
                     "description": "Agent apply in the target stays denied. The target path is data only."
                   },

@@ -571,3 +571,40 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('pull request state and merge guard', () => {
+  const base = { isDraft: false, reviewDecision: '', checks: 'pass' as const, mergeable: 'MERGEABLE' };
+  it('picks one state by priority', () => {
+    expect(p.prState(base)).toMatchObject({ kind: 'mergeable', label: 'Ready to merge', icon: 'check' });
+    expect(p.prState({ ...base, mergeable: 'CONFLICTING' })).toMatchObject({ kind: 'blocked', label: 'Blocked: conflicts' });
+    expect(p.prState({ ...base, checks: 'fail', reviewDecision: 'REVIEW_REQUIRED' })).toMatchObject({ kind: 'blocked', label: 'Blocked: checks failing' });
+    expect(p.prState({ ...base, reviewDecision: 'REVIEW_REQUIRED' })).toMatchObject({ kind: 'needs-review', icon: 'eye' });
+    expect(p.prState({ ...base, reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({ kind: 'follow-up', label: 'Changes requested' });
+    expect(p.prState({ ...base, isDraft: true })).toMatchObject({ kind: 'follow-up', label: 'Draft' });
+    expect(p.prState({ ...base, checks: 'pending' })).toMatchObject({ kind: 'follow-up', label: 'Checks running' });
+    expect(p.prState({ ...base, mergeable: 'UNKNOWN' })).toMatchObject({ kind: 'follow-up' });
+  });
+  it('blocks drafts and conflicts, warns on the rest', () => {
+    expect(p.mergeGuard(base)).toEqual({ warnings: [] });
+    expect(p.mergeGuard({ ...base, isDraft: true }).block).toMatch(/draft/);
+    expect(p.mergeGuard({ ...base, mergeable: 'CONFLICTING' }).block).toMatch(/conflicts/);
+    const g = p.mergeGuard({ ...base, checks: 'fail', reviewDecision: 'CHANGES_REQUESTED' });
+    expect(g.block).toBeUndefined(); expect(g.warnings).toHaveLength(2);
+    expect(p.mergeGuard({ ...base, checks: 'pending', reviewDecision: 'REVIEW_REQUIRED', mergeable: 'UNKNOWN' }).warnings).toHaveLength(3);
+  });
+});
+
+describe('patch and PR file helpers', () => {
+  it('counts files in a patch', () => {
+    expect(p.patchSummary('diff --git a/x b/x\n--- a/x\n+++ b/x\ndiff --git a/y b/y\n')).toEqual({ files: 2, empty: false });
+    expect(p.patchSummary('  \n')).toEqual({ files: 0, empty: true });
+  });
+  it('parses PR files, tolerating bad input', () => {
+    expect(p.parsePrFiles('{"files":[{"path":"a/b.ts","additions":3,"deletions":1}]}')).toEqual([{ path: 'a/b.ts', additions: 3, deletions: 1 }]);
+    expect(p.parsePrFiles('{}')).toEqual([]); expect(p.parsePrFiles('nope')).toEqual([]);
+  });
+  it('names the remote of a tracking ref', () => { expect(p.remoteOf('origin/feature/x')).toBe('origin'); });
+  it('carries isCrossRepository from gh', () => {
+    expect(p.parsePrs('[{"number":1,"isCrossRepository":true}]')[0].isCrossRepository).toBe(true);
+  });
+});

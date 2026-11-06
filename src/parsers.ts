@@ -115,8 +115,8 @@ export function relativeTime(fromSec: number, nowMs = Date.now()): string {
   return 'just now';
 }
 
-export interface PullRequest { number: number; title: string; headRefName: string; baseRefName: string; url: string; isDraft: boolean; reviewDecision: string; author: string; checks: 'pass' | 'fail' | 'pending' | 'none'; mergeable: string; updatedAt?: string }
-export const PR_FIELDS = 'number,title,headRefName,baseRefName,url,isDraft,reviewDecision,author,statusCheckRollup,mergeable,updatedAt';
+export interface PullRequest { number: number; title: string; headRefName: string; baseRefName: string; url: string; isDraft: boolean; reviewDecision: string; author: string; checks: 'pass' | 'fail' | 'pending' | 'none'; mergeable: string; updatedAt?: string; isCrossRepository?: boolean }
+export const PR_FIELDS = 'number,title,headRefName,baseRefName,url,isDraft,reviewDecision,author,statusCheckRollup,mergeable,updatedAt,isCrossRepository';
 export function summarizeChecks(rollup: any[] | undefined): PullRequest['checks'] {
   if (!rollup || rollup.length === 0) return 'none';
   let pending = false;
@@ -131,12 +131,53 @@ export function summarizeChecks(rollup: any[] | undefined): PullRequest['checks'
 export function parsePrs(json: string): PullRequest[] {
   const arr = JSON.parse(json || '[]') as any[];
   return arr.map(p => ({ number: p.number, title: p.title, headRefName: p.headRefName, baseRefName: p.baseRefName, url: p.url, isDraft: !!p.isDraft,
-    reviewDecision: p.reviewDecision || '', author: p.author?.login ?? '', checks: summarizeChecks(p.statusCheckRollup), mergeable: p.mergeable ?? '', updatedAt: p.updatedAt }));
+    reviewDecision: p.reviewDecision || '', author: p.author?.login ?? '', checks: summarizeChecks(p.statusCheckRollup), mergeable: p.mergeable ?? '', updatedAt: p.updatedAt, isCrossRepository: !!p.isCrossRepository }));
 }
 export function prBadge(p: PullRequest): string {
   const review = p.reviewDecision === 'APPROVED' ? 'approved' : p.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : p.reviewDecision === 'REVIEW_REQUIRED' ? 'review required' : '';
   return [`#${p.number}`, p.isDraft ? 'draft' : '', `checks ${p.checks}`, review].filter(Boolean).join(' · ');
 }
+
+export type PrStateKind = 'mergeable' | 'blocked' | 'needs-review' | 'follow-up';
+export interface PrState { kind: PrStateKind; label: string; icon: string; color: string }
+const PR_STATE_LOOK: Record<PrStateKind, { icon: string; color: string }> = {
+  mergeable: { icon: 'check', color: 'charts.green' }, blocked: { icon: 'error', color: 'charts.red' },
+  'needs-review': { icon: 'eye', color: 'charts.blue' }, 'follow-up': { icon: 'clock', color: 'charts.yellow' },
+};
+/** One state for a PR row: blocked, needs review, follow-up (the author has more to do), or mergeable. */
+export function prState(p: Pick<PullRequest, 'isDraft' | 'reviewDecision' | 'checks' | 'mergeable'>): PrState {
+  const make = (kind: PrStateKind, label: string): PrState => ({ kind, label, ...PR_STATE_LOOK[kind] });
+  if (p.mergeable === 'CONFLICTING') return make('blocked', 'Blocked: conflicts');
+  if (p.checks === 'fail') return make('blocked', 'Blocked: checks failing');
+  if (p.isDraft) return make('follow-up', 'Draft');
+  if (p.reviewDecision === 'CHANGES_REQUESTED') return make('follow-up', 'Changes requested');
+  if (p.reviewDecision === 'REVIEW_REQUIRED') return make('needs-review', 'Needs review');
+  if (p.checks === 'pending') return make('follow-up', 'Checks running');
+  if (p.mergeable === 'UNKNOWN') return make('follow-up', 'Checking mergeability');
+  return make('mergeable', 'Ready to merge');
+}
+/** What to say before a merge: a reason it cannot go ahead (block), or things worth knowing (warnings). */
+export function mergeGuard(p: Pick<PullRequest, 'isDraft' | 'reviewDecision' | 'checks' | 'mergeable'>): { block?: string; warnings: string[] } {
+  if (p.isDraft) return { block: 'This pull request is a draft. Mark it ready for review on GitHub first.', warnings: [] };
+  if (p.mergeable === 'CONFLICTING') return { block: 'This pull request has merge conflicts. Resolve them first.', warnings: [] };
+  const warnings: string[] = [];
+  if (p.checks === 'fail') warnings.push('Checks are failing.');
+  if (p.checks === 'pending') warnings.push('Checks are still running.');
+  if (p.reviewDecision === 'CHANGES_REQUESTED') warnings.push('A reviewer requested changes.');
+  if (p.reviewDecision === 'REVIEW_REQUIRED') warnings.push('A review is still required.');
+  if (p.mergeable === 'UNKNOWN') warnings.push('GitHub has not finished checking mergeability.');
+  return { warnings };
+}
+export interface PrFile { path: string; additions: number; deletions: number }
+export function parsePrFiles(json: string): PrFile[] {
+  try { return ((JSON.parse(json) as any).files ?? []).map((f: any) => ({ path: String(f.path), additions: Number(f.additions) || 0, deletions: Number(f.deletions) || 0 })); } catch { return []; }
+}
+/** Summary for a copied patch: how many files it touches. */
+export function patchSummary(patch: string): { files: number; empty: boolean } {
+  return { files: (patch.match(/^diff --git /gm) ?? []).length, empty: !patch.trim() };
+}
+/** The remote name of a remote-tracking ref such as origin/feature/x. */
+export function remoteOf(ref: string): string { return ref.split('/')[0]; }
 
 /** Build a PR title/body from commit subjects (oldest first). */
 export function prefillPr(branch: string, subjects: string[]): { title: string; body: string } {
