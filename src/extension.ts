@@ -264,6 +264,7 @@ async function refCommits(r: string, ref: string, key: string): Promise<Node[]> 
 async function sharedChildren(n: Node): Promise<Node[] | undefined> {
   if (n.kind === 'commit' && n.collapsibleState !== vscode.TreeItemCollapsibleState.None) return commitFiles(n.data.root, n.data.sha, n.id ?? n.data.sha);
   if (n.kind === 'fileFolder') return n.data.children;
+  if (n.kind === 'prFiles') return prFiles(n.data.root, n.data.pr, n.id ?? `pr${n.data.pr.number}:files`);
   return undefined;
 }
 const CHANGE_SCHEME = 'gitkitchen-change';
@@ -275,7 +276,16 @@ const STATUS_INFO: Record<string, { color: string; tip: string }> = {
 function filesAsTree() { return vscode.workspace.getConfiguration('gitKitchen').get<string>('files.layout', 'tree') === 'tree'; }
 async function commitFiles(r: string, sha: string, key = sha): Promise<Node[]> {
   const files = P.parseNameStatus(await git(r, 'diff-tree', '--no-commit-id', '--root', '-r', '-M', '--name-status', sha));
-  const parent = await parentOf(r, sha);
+  return fileNodes(r, files, await parentOf(r, sha), sha, key);
+}
+/** A pull request's changed files against the merge base with its target branch. */
+async function prFiles(r: string, p: P.PullRequest, key: string): Promise<Node[]> {
+  await git(r, 'fetch', 'origin', `pull/${p.number}/head`); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
+  const base = (await git(r, 'merge-base', `origin/${p.baseRefName}`, head)).trim();
+  return fileNodes(r, P.parseNameStatus(await git(r, 'diff', '--no-color', '-M', '--name-status', base, head)), base, head, key);
+}
+/** File rows (flat or folder tree) that open a diff between `parent` and `sha`. */
+function fileNodes(r: string, files: P.ChangedFile[], parent: string, sha: string, key: string): Node[] {
   const leaf = (f: P.ChangedFile, label: string): Node => {
     const x = new Node(label, 'commitFile', { root: r, sha, file: f.path });
     const dir = path.dirname(f.path);
@@ -866,7 +876,8 @@ async function loadPrs(n?: Node): Promise<Node[]> {
   }
   if (n.kind === 'pr') {
     const j = JSON.parse(await gh(r, 'pr', 'view', String(n.data.pr.number), '--json', 'commits'));
-    return (j.commits ?? []).map((c: any) => commitNode(r, { sha: c.oid, short: c.oid.slice(0, 7), author: c.authors?.[0]?.name ?? '', email: c.authors?.[0]?.email ?? '', date: c.committedDate, subject: c.messageHeadline, parents: [] }));
+    const filesNode = new Node('Files changed', 'prFiles', { root: r, pr: n.data.pr }, vscode.TreeItemCollapsibleState.Collapsed); filesNode.iconPath = icon('files'); filesNode.id = `pr${n.data.pr.number}:files`;
+    return [filesNode, ...(j.commits ?? []).map((c: any) => commitNode(r, { sha: c.oid, short: c.oid.slice(0, 7), author: c.authors?.[0]?.name ?? '', email: c.authors?.[0]?.email ?? '', date: c.committedDate, subject: c.messageHeadline, parents: [] }))];
   }
   return [];
 }
