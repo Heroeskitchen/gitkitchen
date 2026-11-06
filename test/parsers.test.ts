@@ -587,3 +587,13 @@ describe('prStatus', () => {
     expect(p.prStatus({ ...base, mergeable: 'UNKNOWN', reviewDecision: '', checks: 'none' })).toBe('ready to merge');
   });
 });
+
+describe('remoteCheckoutArgs', () => {
+  it('fetches the branch before creating the tracking branch', () => {
+    expect(p.remoteCheckoutArgs('origin/feat/x')).toEqual({ fetch: ['fetch', 'origin', 'feat/x'], switch: ['switch', '--track', 'origin/feat/x'] });
+  });
+  it('refuses a name without a remote and branch', () => {
+    expect(() => p.remoteCheckoutArgs('main')).toThrow();
+    expect(() => p.remoteCheckoutArgs('origin/')).toThrow();
+  });
+});

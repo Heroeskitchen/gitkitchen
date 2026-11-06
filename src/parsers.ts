@@ -749,3 +749,10 @@ export function prStatus(p: Pick<PullRequest, 'isDraft' | 'mergeable' | 'checks'
   if (p.checks === 'pending') return 'checks pending';
   return 'ready to merge';
 }
+
+/** Git argument lists to check out a remote-tracking branch such as `origin/feat/x`: fetch it first, then create the tracking branch. */
+export function remoteCheckoutArgs(full: string): { fetch: string[]; switch: string[] } {
+  const i = full.indexOf('/');
+  if (i <= 0 || i === full.length - 1) throw new Error(`Not a remote branch: ${full}`);
+  return { fetch: ['fetch', full.slice(0, i), full.slice(i + 1)], switch: ['switch', '--track', full] };
+}
