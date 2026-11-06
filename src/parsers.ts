@@ -738,3 +738,8 @@ export function isNewerVersion(a: string, b: string): boolean {
   for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0); }
   return false;
 }
+
+/** The pull request badge shown on a branch row; empty when there is none or the setting hides it. */
+export function branchPrBadge(pr: PullRequest | undefined, show: boolean): string {
+  return pr && show ? prBadge(pr) : '';
+}

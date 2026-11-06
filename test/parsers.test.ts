@@ -571,3 +571,12 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('branchPrBadge', () => {
+  const pr = { number: 7, title: 't', headRefName: 'x', baseRefName: 'main', url: '', isDraft: false, reviewDecision: '', author: 'a', checks: 'none' as const, mergeable: '' };
+  it('shows the badge only when enabled and a pull request exists', () => {
+    expect(p.branchPrBadge(pr, true)).toBe('#7 · checks none');
+    expect(p.branchPrBadge(pr, false)).toBe('');
+    expect(p.branchPrBadge(undefined, true)).toBe('');
+  });
+});
