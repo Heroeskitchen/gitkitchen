@@ -572,6 +572,12 @@ describe('isNewerVersion', () => {
   });
 });
 
+describe('prWorktreeBranch', () => {
+  it('names the local branch after the pull request number', () => {
+    expect(p.prWorktreeBranch(42)).toBe('pr-42');
+  });
+});
+
 describe('patchArgs', () => {
   it('builds the commit and stash patch commands', () => {
     expect(p.patchArgs.commit('abc')).toEqual(['show', '--format=', '-M', '--binary', '-m', '--first-parent', 'abc']);

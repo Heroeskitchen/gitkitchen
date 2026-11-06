@@ -739,6 +739,9 @@ export function isNewerVersion(a: string, b: string): boolean {
   return false;
 }
 
+/** Local branch name used for a pull request checked out into its own worktree. */
+export const prWorktreeBranch = (number: number) => `pr-${number}`;
+
 /** Git argument lists that print a commit's or a stash's changes as a patch (renames detected, binary included). */
 export const patchArgs = {
   commit: (sha: string) => ['show', '--format=', '-M', '--binary', '-m', '--first-parent', sha],
