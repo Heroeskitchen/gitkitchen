@@ -861,7 +861,7 @@ async function loadPrs(n?: Node): Promise<Node[]> {
     const prs = P.pinSort(await listPrs(r, true), { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
     return prs.map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
-    x.description = `${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
+    x.description = `${P.prStatus(p)} · ${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
     x.iconPath = p.isDraft ? icon('git-pull-request-draft', 'descriptionForeground') : icon('git-pull-request', 'gitKitchen.prOpenForeground'); return x; });
   }
   if (n.kind === 'pr') {

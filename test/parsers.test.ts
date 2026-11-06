@@ -571,3 +571,19 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('prStatus', () => {
+  const base = { isDraft: false, mergeable: 'MERGEABLE', checks: 'pass' as const, reviewDecision: 'APPROVED' };
+  it('picks one state in priority order', () => {
+    expect(p.prStatus({ ...base, isDraft: true, mergeable: 'CONFLICTING' })).toBe('draft');
+    expect(p.prStatus({ ...base, mergeable: 'CONFLICTING' })).toBe('blocked');
+    expect(p.prStatus({ ...base, checks: 'fail' })).toBe('blocked');
+    expect(p.prStatus({ ...base, reviewDecision: 'CHANGES_REQUESTED' })).toBe('changes requested');
+    expect(p.prStatus({ ...base, reviewDecision: 'REVIEW_REQUIRED' })).toBe('needs review');
+    expect(p.prStatus({ ...base, checks: 'pending' })).toBe('checks pending');
+    expect(p.prStatus(base)).toBe('ready to merge');
+  });
+  it('treats unknown merge state and no review as ready', () => {
+    expect(p.prStatus({ ...base, mergeable: 'UNKNOWN', reviewDecision: '', checks: 'none' })).toBe('ready to merge');
+  });
+});

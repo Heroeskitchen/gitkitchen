@@ -738,3 +738,14 @@ export function isNewerVersion(a: string, b: string): boolean {
   for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0); }
   return false;
 }
+
+export type PrStatus = 'draft' | 'blocked' | 'changes requested' | 'needs review' | 'checks pending' | 'ready to merge';
+/** One state for a pull request row, from its draft flag, merge state, checks and review decision. */
+export function prStatus(p: Pick<PullRequest, 'isDraft' | 'mergeable' | 'checks' | 'reviewDecision'>): PrStatus {
+  if (p.isDraft) return 'draft';
+  if (p.mergeable === 'CONFLICTING' || p.checks === 'fail') return 'blocked';
+  if (p.reviewDecision === 'CHANGES_REQUESTED') return 'changes requested';
+  if (p.reviewDecision === 'REVIEW_REQUIRED') return 'needs review';
+  if (p.checks === 'pending') return 'checks pending';
+  return 'ready to merge';
+}
