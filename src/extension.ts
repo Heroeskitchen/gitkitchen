@@ -870,16 +870,28 @@ async function loadPrs(n?: Node): Promise<Node[]> {
   }
   return [];
 }
-async function mergePr(n: Node, how: 'merge' | 'squash' | 'rebase') {
-  const p = n.data.pr as P.PullRequest; const label = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' }[how];
-  if (!await confirm(`${label} #${p.number} "${p.title}" into ${p.baseRefName}?\nChecks: ${p.checks}${p.reviewDecision ? ' · ' + p.reviewDecision.toLowerCase() : ''}`, label)) return;
+const MERGE_LABEL = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' } as const;
+async function runMerge(n: Node, how: keyof typeof MERGE_LABEL) {
+  const p = n.data.pr as P.PullRequest; const label = MERGE_LABEL[how];
   await withProgress(`${label} #${p.number}`, () => gh(n.data.root, 'pr', 'merge', String(p.number), `--${how}`)); prCache = undefined; refreshAll();
   vscode.window.showInformationMessage(`#${p.number} merged.`);
+}
+async function mergePr(n: Node, how: keyof typeof MERGE_LABEL) {
+  const p = n.data.pr as P.PullRequest;
+  if (!await confirm(`${MERGE_LABEL[how]} ${P.mergeConfirmText(p)}`, MERGE_LABEL[how])) return;
+  await runMerge(n, how);
+}
+/** One confirm with the three merge methods as its buttons; a blocked pull request says why in the text. */
+async function chooseMerge(n: Node) {
+  const p = n.data.pr as P.PullRequest;
+  const pick = await vscode.window.showWarningMessage(P.mergeConfirmText(p), { modal: true }, MERGE_LABEL.merge, MERGE_LABEL.squash, MERGE_LABEL.rebase);
+  const how = (Object.keys(MERGE_LABEL) as (keyof typeof MERGE_LABEL)[]).find(k => MERGE_LABEL[k] === pick);
+  if (how) await runMerge(n, how);
 }
 function registerPrs() {
   cmd('gitKitchen.pr.open', async (n: Node) => vscode.env.openExternal(vscode.Uri.parse((n.data.pr ?? n.data).url)));
   cmd('gitKitchen.pr.checkout', async (n: Node) => { await withProgress('Checking out PR', () => gh(n.data.root, 'pr', 'checkout', String(n.data.pr.number))); refreshAll(); });
-  cmd('gitKitchen.pr.merge', (n: Node) => mergePr(n, 'merge'));
+  cmd('gitKitchen.pr.merge', (n: Node) => chooseMerge(n));
   cmd('gitKitchen.pr.squash', (n: Node) => mergePr(n, 'squash'));
   cmd('gitKitchen.pr.rebase', (n: Node) => mergePr(n, 'rebase'));
   cmd('gitKitchen.pr.compare', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest;

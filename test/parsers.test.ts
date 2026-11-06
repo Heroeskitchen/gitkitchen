@@ -571,3 +571,16 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('merge confirm', () => {
+  const pr = { number: 7, title: 'Fix it', headRefName: 'x', baseRefName: 'main', url: '', isDraft: false, reviewDecision: 'APPROVED', author: 'a', checks: 'pass' as const, mergeable: 'MERGEABLE' };
+  it('lists nothing in the way for a ready pull request', () => {
+    expect(p.mergeBlockers(pr)).toEqual([]);
+    expect(p.mergeConfirmText(pr)).toBe('#7 "Fix it" into main\nChecks: pass · approved · mergeable');
+  });
+  it('says why a pull request is not ready', () => {
+    expect(p.mergeBlockers({ ...pr, isDraft: true, mergeable: 'CONFLICTING', checks: 'fail', reviewDecision: 'CHANGES_REQUESTED' }))
+      .toEqual(['it is a draft', 'it has merge conflicts', 'checks are failing', 'changes were requested']);
+    expect(p.mergeConfirmText({ ...pr, checks: 'pending', reviewDecision: 'REVIEW_REQUIRED' })).toContain('Not ready: checks are still running; a review is required.');
+  });
+});

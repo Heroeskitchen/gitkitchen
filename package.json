@@ -1032,16 +1032,6 @@
           "group": "2_m@1"
         },
         {
-          "command": "gitKitchen.pr.squash",
-          "when": "view == gitKitchen.prs && viewItem == pr",
-          "group": "2_m@2"
-        },
-        {
-          "command": "gitKitchen.pr.rebase",
-          "when": "view == gitKitchen.prs && viewItem == pr",
-          "group": "2_m@3"
-        },
-        {
           "command": "gitKitchen.remote.fetch",
           "when": "view == gitKitchen.remotes && viewItem == remote",
           "group": "1@1"

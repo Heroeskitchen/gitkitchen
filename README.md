@@ -29,7 +29,7 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
   any branch (default folder `<parent>/<repo>.worktrees/<branch>`, or choose one) or from a new branch; open in a new or
   the current window, reveal, open a terminal, lock/unlock, move, remove and prune.
 - **Pull Requests**: open GitHub pull requests with check status and review state. Open, check out, compare,
-  and merge, squash-merge or rebase-merge. Create a pull request from any branch with the title and body
+  and merge from one prompt (merge, squash or rebase), which says when a pull request is not ready. Create a pull request from any branch with the title and body
   prefilled from its commits.
 - **File History**: every commit that touched the current file.
 - **Compare Remotes**: commits on one remote's main branch that are missing from another remote. Shown only when the repository has more than one remote. With two remotes it compares `origin` (or the current branch's upstream remote, or the first alphabetically) against the other; with more it asks once which pair to compare. The title bar can swap the direction or pick another pair, and the choice is saved per folder.

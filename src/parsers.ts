@@ -738,3 +738,20 @@ export function isNewerVersion(a: string, b: string): boolean {
   for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0); }
   return false;
 }
+
+/** Reasons a pull request is not ready to merge, in plain words; empty when nothing stands in the way. */
+export function mergeBlockers(p: Pick<PullRequest, 'isDraft' | 'mergeable' | 'checks' | 'reviewDecision'>): string[] {
+  return [
+    p.isDraft ? 'it is a draft' : '',
+    p.mergeable === 'CONFLICTING' ? 'it has merge conflicts' : '',
+    p.checks === 'fail' ? 'checks are failing' : p.checks === 'pending' ? 'checks are still running' : '',
+    p.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : p.reviewDecision === 'REVIEW_REQUIRED' ? 'a review is required' : '',
+  ].filter(Boolean);
+}
+/** Text of the merge confirm: the pull request, its checks and review, and any blockers. */
+export function mergeConfirmText(p: PullRequest): string {
+  const lines = [`#${p.number} "${p.title}" into ${p.baseRefName}`, `Checks: ${p.checks}${p.reviewDecision ? ' · ' + p.reviewDecision.toLowerCase().replace(/_/g, ' ') : ''}${p.mergeable && p.mergeable !== 'UNKNOWN' ? ' · ' + p.mergeable.toLowerCase() : ''}`];
+  const b = mergeBlockers(p);
+  if (b.length) lines.push('', `Not ready: ${b.join('; ')}.`);
+  return lines.join('\n');
+}
