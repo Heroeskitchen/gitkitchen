@@ -10,12 +10,18 @@ export const LINKS_SETTING_SCOPE = 'application';
 
 export type LinkPolicy = Record<string, string | number | boolean | null>;
 
+/** Agent launch and apply in a link target stay denied. The target path is data only. */
+export const AGENT_TARGET_ACCESS = 'denied' as const;
+export type AgentTargetAccess = typeof AGENT_TARGET_ACCESS;
+
 export interface LinkRecord {
   linkId: string;
   targetPath: string;
   targetBaseSha: string;
   disabled: boolean;
   policy: LinkPolicy;
+  agentLaunch: AgentTargetAccess;
+  agentApply: AgentTargetAccess;
 }
 
 export interface LinkRegistry {
@@ -41,7 +47,7 @@ export type RefuseReason =
   | 'invalid-registry';
 
 export type ResolveResult =
-  | { outcome: 'resolved'; path: string; policy: LinkPolicy; targetBaseSha: string }
+  | { outcome: 'resolved'; path: string; policy: LinkPolicy; targetBaseSha: string; agentLaunch: AgentTargetAccess; agentApply: AgentTargetAccess }
   | { outcome: 'refuse'; reason: RefuseReason }
   | { outcome: 'blocked'; reason: 'disabled' };
 
@@ -49,6 +55,7 @@ const LINK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SHA = /^[0-9a-f]{7,64}$/i;
 const POLICY_KEY = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const SECRET_QUERY = /(?:^|[?&])(?:access_token|token|password|secret|auth)=/i;
+const ACTION_GRANT = /launch|apply|permit|allow/i;
 
 export function registryPath(privateOps: string): string {
   return path.join(path.resolve(privateOps), 'transfer', 'links.json');
@@ -137,7 +144,14 @@ function classify(root: string, link: LinkRecord): ResolveResult {
     return { outcome: 'refuse', reason: 'missing-target' };
   }
   if (!inside(realRoot, realTarget)) return { outcome: 'refuse', reason: 'path-escape' };
-  return { outcome: 'resolved', path: realTarget, policy: { ...link.policy }, targetBaseSha: link.targetBaseSha };
+  return {
+    outcome: 'resolved',
+    path: realTarget,
+    policy: { ...link.policy },
+    targetBaseSha: link.targetBaseSha,
+    agentLaunch: AGENT_TARGET_ACCESS,
+    agentApply: AGENT_TARGET_ACCESS,
+  };
 }
 
 function lexicalTarget(rootAbs: string, target: string): string {
@@ -189,6 +203,7 @@ function cleanPolicy(policy: LinkPolicy | undefined): LinkPolicy {
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new Error('Policy must be an object.');
   const out: LinkPolicy = {};
   for (const [key, value] of Object.entries(policy)) {
+    if (grantsAgentAction(key)) continue;
     if (!POLICY_KEY.test(key)) throw new Error('Invalid policy key.');
     if (typeof value === 'string') {
       if (value.includes('\0') || isCredentialBearingTarget(value) || isRemoteUrl(value)) throw new Error('Policy cannot hold a remote URL.');
@@ -214,7 +229,16 @@ function buildRecord(root: string, input: { linkId: string; targetPath: unknown;
     targetBaseSha: cleanSha(input.targetBaseSha),
     disabled: input.disabled === true,
     policy: cleanPolicy(input.policy),
+    ...deniedAccess(),
   };
+}
+
+function grantsAgentAction(key: string): boolean {
+  return ACTION_GRANT.test(key);
+}
+
+function deniedAccess(): { agentLaunch: AgentTargetAccess; agentApply: AgentTargetAccess } {
+  return { agentLaunch: AGENT_TARGET_ACCESS, agentApply: AGENT_TARGET_ACCESS };
 }
 
 function samePath(a: string, b: string): boolean {
@@ -267,6 +291,7 @@ function parseLink(value: unknown): LinkRecord | undefined {
     targetBaseSha: rec.targetBaseSha,
     disabled: rec.disabled === true,
     policy,
+    ...deniedAccess(),
   };
 }
 
@@ -293,6 +318,8 @@ function writeRegistry(privateOps: string, registry: LinkRegistry): void {
       targetBaseSha: link.targetBaseSha,
       disabled: link.disabled,
       policy: { ...link.policy },
+      agentLaunch: AGENT_TARGET_ACCESS,
+      agentApply: AGENT_TARGET_ACCESS,
     })),
   }, null, 2) + '\n';
   try {

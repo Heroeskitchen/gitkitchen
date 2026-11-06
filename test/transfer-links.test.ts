@@ -4,8 +4,10 @@ import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSyn
 import { tmpdir } from 'os';
 import { join, relative } from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as links from '../src/transfer/links';
 import {
   addLink,
+  AGENT_TARGET_ACCESS,
   disableLink,
   LINKS_SETTING_KEY,
   LINKS_SETTING_SCOPE,
@@ -96,6 +98,8 @@ describe('transfer links', () => {
       path: target,
       policy: { lane: 'synthetic' },
       targetBaseSha: SHA,
+      agentLaunch: 'denied',
+      agentApply: 'denied',
     });
     untouched();
   });
@@ -217,7 +221,15 @@ describe('transfer links', () => {
     expect(disabled.disabled).toBe(true);
     const reloaded = loadRegistry(privateOps);
     expect(reloaded.root).toBe(root);
-    expect(reloaded.links).toEqual([{ linkId: 'lnk-1', targetPath: target, targetBaseSha: SHA2, disabled: true, policy: { lane: 'b' } }]);
+    expect(reloaded.links).toEqual([{
+      linkId: 'lnk-1',
+      targetPath: target,
+      targetBaseSha: SHA2,
+      disabled: true,
+      policy: { lane: 'b' },
+      agentLaunch: 'denied',
+      agentApply: 'denied',
+    }]);
 
     const file = registryPath(privateOps);
     expect(file.endsWith(join('transfer', 'links.json'))).toBe(true);
@@ -258,6 +270,55 @@ describe('transfer links', () => {
     expect(props['gitKitchen.dualRemote.target'].scope).toBe('resource');
     expect(links.properties.root.type).toBe('string');
     expect(links.properties.links.type).toBe('array');
+    const item = links.properties.links.items.properties;
+    expect(item.agentLaunch.enum).toEqual(['denied']);
+    expect(item.agentLaunch.default).toBe('denied');
+    expect(item.agentApply.enum).toEqual(['denied']);
+    expect(item.agentApply.default).toBe('denied');
+  });
+
+  it('keeps a named target denied for agent launch and apply', () => {
+    const added = addLink(privateOps, root, {
+      linkId: 'lnk-1',
+      targetPath: target,
+      targetBaseSha: SHA,
+      policy: { lane: 'synthetic', launch: 'allow', apply: 'allow', allowLocalAgentApply: true },
+    });
+    expect(AGENT_TARGET_ACCESS).toBe('denied');
+    expect(added.agentLaunch).toBe('denied');
+    expect(added.agentApply).toBe('denied');
+    expect(added.targetPath).toBe(target);
+    expect(added.policy).toEqual({ lane: 'synthetic' });
+
+    const updated = updateLink(privateOps, 'lnk-1', { policy: { lane: 'synthetic', permitLaunch: 'allow', agentApply: 'allow' } });
+    expect(updated.policy).toEqual({ lane: 'synthetic' });
+    expect(updated.agentLaunch).toBe('denied');
+    expect(updated.agentApply).toBe('denied');
+    const saved = readFileSync(registryPath(privateOps), 'utf8');
+    expect(saved).toContain('"agentLaunch": "denied"');
+    expect(saved).toContain('"agentApply": "denied"');
+    expect(saved).not.toContain('allow');
+
+    const parsed = JSON.parse(saved);
+    parsed.links[0].agentLaunch = 'allow';
+    parsed.links[0].agentApply = 'allow';
+    parsed.links[0].policy = { lane: 'synthetic', apply: 'allow', launch: true };
+    writeFileSync(registryPath(privateOps), JSON.stringify(parsed));
+    const resolved = resolveLink(privateOps, 'lnk-1');
+    expect(resolved).toMatchObject({
+      outcome: 'resolved',
+      path: target,
+      policy: { lane: 'synthetic' },
+      agentLaunch: 'denied',
+      agentApply: 'denied',
+    });
+    expect(loadRegistry(privateOps).links[0]).toMatchObject({ agentLaunch: 'denied', agentApply: 'denied', policy: { lane: 'synthetic' } });
+
+    const src = readFileSync(new URL('../src/transfer/links.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/child_process|spawn\(|execFile|execSync|git apply/);
+    const exported = Object.keys(links).filter(name => /^(launch|apply|spawn|exec)/i.test(name));
+    expect(exported).toEqual([]);
+    untouched();
   });
 
   it('leaves an unknown id and a mismatched root unwritten', () => {

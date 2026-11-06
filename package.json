@@ -1922,7 +1922,7 @@
             "root": "",
             "links": []
           },
-          "description": "Private transfer link registry for this user. Not a workspace or folder setting.",
+          "description": "Private transfer link registry for this user. A link may name a target directory as data. Agent launch and apply stay denied. Not a workspace or folder setting.",
           "properties": {
             "root": {
               "type": "string",
@@ -1954,6 +1954,18 @@
                     "type": "boolean",
                     "default": false,
                     "description": "When true, resolving this link is blocked."
+                  },
+                  "agentLaunch": {
+                    "type": "string",
+                    "enum": ["denied"],
+                    "default": "denied",
+                    "description": "Agent launch in the target stays denied. The target path is data only."
+                  },
+                  "agentApply": {
+                    "type": "string",
+                    "enum": ["denied"],
+                    "default": "denied",
+                    "description": "Agent apply in the target stays denied. The target path is data only."
                   },
                   "policy": {
                     "type": "object",
