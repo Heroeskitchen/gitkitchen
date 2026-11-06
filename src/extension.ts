@@ -392,9 +392,10 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const pr = prs.find(p => p.headRefName === b.name);
   const hasWt = !!b.worktreePath && !b.current;
   const x = new Node(label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
-  x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [pr ? P.prBadge(pr) : '', hasWt ? 'worktree' : ''].filter(Boolean));
+  const showPr = vscode.workspace.getConfiguration('gitKitchen').get('branches.showPrBadges', true);
+  x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [P.branchPrBadge(pr, showPr), hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);
-  const st = P.branchState({ current: b.current, pr: P.prForBranch(allPrs, b.name), mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
+  const st = P.branchState({ current: b.current, pr: showPr ? P.prForBranch(allPrs, b.name) : undefined, mergedInto: merged.has(b.name) ? mergedBase : undefined, worktree: hasWt });
   const brPr = P.prForBranch(allPrs, b.name);
   const mergedRow = st.icon === 'git-merge';
   // Merged branches: default label, merge glyph with a purple dot.

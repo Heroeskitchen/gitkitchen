@@ -739,6 +739,11 @@ export function isNewerVersion(a: string, b: string): boolean {
   return false;
 }
 
+/** The pull request badge shown on a branch row; empty when there is none or the setting hides it. */
+export function branchPrBadge(pr: PullRequest | undefined, show: boolean): string {
+  return pr && show ? prBadge(pr) : '';
+}
+
 export type PrStatus = 'draft' | 'blocked' | 'changes requested' | 'needs review' | 'checks pending' | 'ready to merge';
 /** One state for a pull request row, from its draft flag, merge state, checks and review decision. */
 export function prStatus(p: Pick<PullRequest, 'isDraft' | 'mergeable' | 'checks' | 'reviewDecision'>): PrStatus {

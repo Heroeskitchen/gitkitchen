@@ -92,6 +92,7 @@ Download or build `gitkitchen-<version>.vsix`, then run `cursor --install-extens
 | `gitKitchen.blame.highlightSameCommit` | `true` | Highlight other lines from the same commit. |
 | `gitKitchen.changes.gutter` | `true` | Mark added, changed and deleted lines against HEAD in the gutter. |
 | `gitKitchen.sortBy` | `date` | Sort Branches, Remotes, Worktrees and Pull Requests newest first (branch folders by their newest branch) or by `name`. The current branch, its remote, the current worktree and its pull request stay on top. |
+| `gitKitchen.branches.showPrBadges` | `true` | Show the pull request badge and icon on branch rows. |
 | `gitKitchen.branches.layout` | `tree` | `tree` groups branches by `/` prefix; `list` shows them flat. |
 | `gitKitchen.heatmap.location` | `gutter` | Draw the heatmap in the `gutter` or as a line `background`. |
 | `gitKitchen.codeLens.enabled` | `true` | Show the author code lens. |
