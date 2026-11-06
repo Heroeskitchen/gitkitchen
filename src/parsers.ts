@@ -744,7 +744,6 @@ export const patchArgs = {
   commit: (sha: string) => ['show', '--format=', '-M', '--binary', '-m', '--first-parent', sha],
   stash: (ref: string) => ['stash', 'show', '-p', '-M', '--binary', ref],
 };
-}
 
 /** The pull request badge shown on a branch row; empty when there is none or the setting hides it. */
 export function branchPrBadge(pr: PullRequest | undefined, show: boolean): string {
