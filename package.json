@@ -1837,6 +1837,11 @@
           "default": true,
           "description": "Color branch names like their icon: green when in sync and recently pushed or pulled, yellow with unpushed commits, red when behind."
         },
+        "gitKitchen.branches.showPrBadges": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the pull request badge and icon on branch rows."
+        },
         "gitKitchen.avatars": {
           "type": "boolean",
           "default": true,
