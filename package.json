@@ -1093,7 +1093,7 @@
         },
         {
           "command": "gitKitchen.stash.copyPatch",
-          "when": "view == gitKitchen.stashes && viewItem == stash",
+          "when": "view == gitKitchen.stashes && (viewItem == stash || viewItem == stashFile)",
           "group": "1@3"
         },
         {
@@ -1148,7 +1148,7 @@
         },
         {
           "command": "gitKitchen.commit.copyPatch",
-          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/ || viewItem == commitFile",
           "group": "2@4"
         },
         {
@@ -1973,7 +1973,11 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["linkId", "targetPath", "targetBaseSha"],
+                "required": [
+                  "linkId",
+                  "targetPath",
+                  "targetBaseSha"
+                ],
                 "properties": {
                   "linkId": {
                     "type": "string",
@@ -1994,13 +1998,17 @@
                   },
                   "agentLaunch": {
                     "type": "string",
-                    "enum": ["denied"],
+                    "enum": [
+                      "denied"
+                    ],
                     "default": "denied",
                     "description": "Agent launch in the target stays denied. The target path is data only."
                   },
                   "agentApply": {
                     "type": "string",
-                    "enum": ["denied"],
+                    "enum": [
+                      "denied"
+                    ],
                     "default": "denied",
                     "description": "Agent apply in the target stays denied. The target path is data only."
                   },

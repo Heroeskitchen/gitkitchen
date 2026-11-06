@@ -632,3 +632,17 @@ describe('remoteCheckoutArgs', () => {
     expect(() => p.remoteCheckoutArgs('origin/')).toThrow();
   });
 });
+
+describe('patch helpers for files and comparisons', () => {
+  it('limits a commit patch to one file', () => {
+    expect(p.patchArgs.commit('abc', 'a/b.ts')).toEqual(['show', '--format=', '-M', '--binary', '-m', '--first-parent', 'abc', '--', 'a/b.ts']);
+  });
+  it('builds range patches against a ref or the working tree', () => {
+    expect(p.patchArgs.range('A', 'B')).toEqual(['diff', '-M', '--binary', 'A', 'B']);
+    expect(p.patchArgs.range('A')).toEqual(['diff', '-M', '--binary', 'A']);
+  });
+  it('counts files in a patch', () => {
+    expect(p.patchSummary('diff --git a/x b/x\n--- a/x\ndiff --git a/y b/y\n')).toEqual({ files: 2, empty: false });
+    expect(p.patchSummary(' \n')).toEqual({ files: 0, empty: true });
+  });
+});

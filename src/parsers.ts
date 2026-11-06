@@ -761,9 +761,15 @@ export const prWorktreeBranch = (number: number) => `pr-${number}`;
 
 /** Git argument lists that print a commit's or a stash's changes as a patch (renames detected, binary included). */
 export const patchArgs = {
-  commit: (sha: string) => ['show', '--format=', '-M', '--binary', '-m', '--first-parent', sha],
+  commit: (sha: string, file?: string) => ['show', '--format=', '-M', '--binary', '-m', '--first-parent', sha, ...(file ? ['--', file] : [])],
   stash: (ref: string) => ['stash', 'show', '-p', '-M', '--binary', ref],
+  /** Changes between two refs, or from a ref to the working tree when `right` is omitted. */
+  range: (left: string, right?: string) => ['diff', '-M', '--binary', left, ...(right ? [right] : [])],
 };
+/** Summary for a copied patch: how many files it touches. */
+export function patchSummary(patch: string): { files: number; empty: boolean } {
+  return { files: (patch.match(/^diff --git /gm) ?? []).length, empty: !patch.trim() };
+}
 
 /** The pull request badge shown on a branch row; empty when there is none or the setting hides it. */
 export function branchPrBadge(pr: PullRequest | undefined, show: boolean): string {

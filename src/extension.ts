@@ -70,9 +70,17 @@ async function compareRefs(r: string, left: string, right?: string, label?: stri
   const args = ['diff', '--name-status', '-M', left]; if (right) args.push(right);
   const lines = P.parseNameList(await git(r, ...args));
   if (!lines.length) { vscode.window.showInformationMessage(`No differences${label ? ' ' + label : ''}.`); return; }
-  const items = lines.map(l => { const parts = l.split('\t'); return { label: parts[parts.length - 1], description: parts[0], old: parts.length > 2 ? parts[1] : undefined }; });
-  const pick = await vscode.window.showQuickPick(items, { title: `Changed files${label ? ' — ' + label : ''}`, matchOnDescription: true });
-  if (pick) await diffFile(r, left, right, pick.label, pick.old);
+  const items = lines.map(l => { const parts = l.split('\t'); return { label: parts[parts.length - 1], description: parts[0], old: parts.length > 2 ? parts[1] : undefined, all: false }; });
+  const copyAll = { label: '$(copy) Copy patch of all changes', description: `${lines.length} ${lines.length === 1 ? 'file' : 'files'}`, old: undefined, all: true };
+  const pick = await vscode.window.showQuickPick([copyAll, ...items], { title: `Changed files${label ? ' — ' + label : ''}`, matchOnDescription: true });
+  if (!pick) return;
+  if (pick.all) { await copyPatch(await git(r, ...P.patchArgs.range(left, right)), label ?? 'the comparison'); return; }
+  await diffFile(r, left, right, pick.label, pick.old);
+}
+async function copyPatch(text: string, what: string) {
+  const s = P.patchSummary(text); if (s.empty) { vscode.window.showInformationMessage(`No changes to copy for ${what}.`); return; }
+  await vscode.env.clipboard.writeText(text.endsWith('\n') ? text : text + '\n');
+  vscode.window.setStatusBarMessage(`Copied patch for ${what} (${s.files} ${s.files === 1 ? 'file' : 'files'})`, 4000);
 }
 async function parentOf(r: string, sha: string): Promise<string> {
   try { return (await git(r, 'rev-parse', `${sha}^`)).trim(); } catch { return EMPTY_TREE; }
@@ -559,7 +567,9 @@ function registerStashes() {
   cmd('gitKitchen.stash.applyRef', async (ref: string) => { const r = await root(); await git(r, 'stash', 'apply', ref); refreshAll(); });
   cmd('gitKitchen.stash.apply', async (n: Node) => { const r = await root(); await git(r, 'stash', 'apply', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.pop', async (n: Node) => { const r = await root(); await git(r, 'stash', 'pop', n.data.stash.ref); refreshAll(); });
-  cmd('gitKitchen.stash.copyPatch', async (n: Node) => { const r = await root(); await vscode.env.clipboard.writeText(await git(r, ...P.patchArgs.stash(n.data.stash.ref))); vscode.window.setStatusBarMessage('Copied stash patch', 2000); });
+  cmd('gitKitchen.stash.copyPatch', async (n: Node) => { const r = await root();
+    if (n.data.stash) { await vscode.env.clipboard.writeText(await git(r, ...P.patchArgs.stash(n.data.stash.ref))); vscode.window.setStatusBarMessage('Copied stash patch', 2000); return; }
+    await copyPatch(await git(r, ...P.patchArgs.commit(n.data.sha, n.data.file)), `${n.data.file} in the stash`); });
   cmd('gitKitchen.stash.drop', async (n: Node) => { const r = await root(); if (!await confirm(`Delete ${n.data.stash.ref}: ${n.data.stash.message}?`, 'Delete')) return; await git(r, 'stash', 'drop', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.openFile', async (n: Node) => { const r = n.data.root; const parent = await parentOf(r, n.data.sha);
     // Untracked files live in the third parent; fall back to an empty left side.
@@ -766,7 +776,7 @@ function registerHistory() {
     const v = views['gitKitchen.commits']; const nodes = await refCommits(a.root, 'HEAD', 'commits'); const hit = nodes.find(x => x.data?.sha === a.sha);
     if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
   });
-  cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await vscode.env.clipboard.writeText(await git(a.root, ...P.patchArgs.commit(a.sha))); vscode.window.setStatusBarMessage('Copied commit patch', 2000); });
+  cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await copyPatch(await git(a.root, ...P.patchArgs.commit(a.sha, a.file)), a.file ? `${a.file} in ${a.sha.slice(0, 8)}` : `commit ${a.sha.slice(0, 8)}`); });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
@@ -897,6 +907,8 @@ async function mergePr(n: Node, how: keyof typeof MERGE_LABEL) {
 }
 /** One confirm with the three merge methods as its buttons; a blocked pull request says why in the text. */
 async function chooseMerge(n: Node) {
+  // Re-read the pull request so the confirm reflects its state now, not the cached row.
+  try { n.data.pr = P.parsePrs('[' + await gh(n.data.root, 'pr', 'view', String(n.data.pr.number), '--json', P.PR_FIELDS) + ']')[0] ?? n.data.pr; } catch { /* keep the cached row */ }
   const p = n.data.pr as P.PullRequest;
   const pick = await vscode.window.showWarningMessage(P.mergeConfirmText(p), { modal: true }, MERGE_LABEL.merge, MERGE_LABEL.squash, MERGE_LABEL.rebase);
   const how = (Object.keys(MERGE_LABEL) as (keyof typeof MERGE_LABEL)[]).find(k => MERGE_LABEL[k] === pick);
