@@ -106,6 +106,7 @@ Download or build `gitkitchen-<version>.vsix`, then run `cursor --install-extens
 | `gitKitchen.branches.colorLabels` | `true` | Color branch names like their icon: green when in sync and pushed or pulled recently, yellow with unpushed commits, red when behind (a red dot marks the icon). |
 | `gitKitchen.avatars` | `true` | Author avatars on commit rows: GitHub noreply id, then the GitHub commit author, then Gravatar, else generated initials. Cached for 7 days; off shows the commit icon. |
 | `gitKitchen.recentSyncMinutes` | `60` | How long after a push, pull or fetch an in-sync branch stays green. |
+| `gitKitchen.transfer.links` | empty | Private transfer link registry for this user. Application setting, not saved per folder. |
 
 ## Development
 ```sh

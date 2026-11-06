@@ -1914,6 +1914,57 @@
           "type": "boolean",
           "default": false,
           "description": "Hide merge commits in the Commits view."
+        },
+        "gitKitchen.transfer.links": {
+          "type": "object",
+          "scope": "application",
+          "default": {
+            "root": "",
+            "links": []
+          },
+          "description": "Private transfer link registry for this user. Not a workspace or folder setting.",
+          "properties": {
+            "root": {
+              "type": "string",
+              "default": "",
+              "description": "Absolute directory that every link target must stay inside."
+            },
+            "links": {
+              "type": "array",
+              "default": [],
+              "description": "Opaque link records. Targets are directories, never remote URLs.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["linkId", "targetPath", "targetBaseSha"],
+                "properties": {
+                  "linkId": {
+                    "type": "string",
+                    "description": "Opaque link id."
+                  },
+                  "targetPath": {
+                    "type": "string",
+                    "description": "Target directory inside the configured root."
+                  },
+                  "targetBaseSha": {
+                    "type": "string",
+                    "description": "Stored target base commit for this link."
+                  },
+                  "disabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "When true, resolving this link is blocked."
+                  },
+                  "policy": {
+                    "type": "object",
+                    "default": {},
+                    "additionalProperties": true,
+                    "description": "Per-link policy stored only in this registry."
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
