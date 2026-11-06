@@ -28,8 +28,9 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
 - **Worktrees**: each worktree with its branch, dirty marker and ahead/behind counts. Create a worktree from
   any branch (default folder `<parent>/<repo>.worktrees/<branch>`, or choose one) or from a new branch; open in a new or
   the current window, reveal, open a terminal, lock/unlock, move, remove and prune.
-- **Pull Requests**: open GitHub pull requests with check status and review state. Open, check out, compare,
-  and merge, squash-merge or rebase-merge. Create a pull request from any branch with the title and body
+- **Pull Requests**: open GitHub pull requests with one state each (ready to merge, blocked, needs review or
+  follow-up). Open, check out, compare, open in a worktree, browse the changed files, and merge from one
+  Merge… action that picks merge, squash or rebase and warns or blocks when the PR is not mergeable. Create a pull request from any branch with the title and body
   prefilled from its commits.
 - **File History**: every commit that touched the current file.
 - **Compare Remotes**: commits on one remote's main branch that are missing from another remote. Shown only when the repository has more than one remote. With two remotes it compares `origin` (or the current branch's upstream remote, or the first alphabetically) against the other; with more it asks once which pair to compare. The title bar can swap the direction or pick another pair, and the choice is saved per folder.
@@ -90,6 +91,7 @@ Download or build `gitkitchen-<version>.vsix`, then run `cursor --install-extens
 | `gitKitchen.statusBar.enabled` | `true` | Show the current line's author and time in the status bar. |
 | `gitKitchen.blame.changesHover` | `true` | Show the line's diff hunk in the blame hover. |
 | `gitKitchen.blame.highlightSameCommit` | `true` | Highlight other lines from the same commit. |
+| `gitKitchen.branches.showPullRequests` | `true` | Show pull request badges and state on branch rows, including the current branch. |
 | `gitKitchen.changes.gutter` | `true` | Mark added, changed and deleted lines against HEAD in the gutter. |
 | `gitKitchen.sortBy` | `date` | Sort Branches, Remotes, Worktrees and Pull Requests newest first (branch folders by their newest branch) or by `name`. The current branch, its remote, the current worktree and its pull request stay on top. |
 | `gitKitchen.branches.layout` | `tree` | `tree` groups branches by `/` prefix; `list` shows them flat. |
