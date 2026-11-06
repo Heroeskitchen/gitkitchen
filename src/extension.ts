@@ -515,7 +515,7 @@ function registerRemotes() {
   cmd('gitKitchen.remote.pull', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim(); await withProgress(`Pulling ${cur} from ${n.data.name}`, () => git(r, 'pull', '--ff-only', n.data.name, cur)); refreshAll(); });
   cmd('gitKitchen.remote.push', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim();
     if (!await confirm(`Push ${cur} to ${n.data.name}?`, 'Push')) return; await withProgress(`Pushing ${cur}`, () => git(r, 'push', '-u', n.data.name, cur)); refreshAll(); });
-  cmd('gitKitchen.remoteBranch.checkout', async (n: Node) => { const r = await root(); await git(r, 'switch', '--track', n.data.name); refreshAll(); });
+  cmd('gitKitchen.remoteBranch.checkout', async (n: Node) => { const r = await root(); const a = P.remoteCheckoutArgs(n.data.name); await withProgress(`Fetching ${n.data.name}`, () => git(r, ...a.fetch)); await git(r, ...a.switch); refreshAll(); });
   cmd('gitKitchen.remoteBranch.compareHead', async (n: Node) => { const r = await root(); await compareRefs(r, 'HEAD', n.data.name, `HEAD ↔ ${n.data.name}`); });
 }
 
