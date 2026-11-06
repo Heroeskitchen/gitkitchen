@@ -571,3 +571,13 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('remoteCheckoutArgs', () => {
+  it('fetches the branch before creating the tracking branch', () => {
+    expect(p.remoteCheckoutArgs('origin/feat/x')).toEqual({ fetch: ['fetch', 'origin', 'feat/x'], switch: ['switch', '--track', 'origin/feat/x'] });
+  });
+  it('refuses a name without a remote and branch', () => {
+    expect(() => p.remoteCheckoutArgs('main')).toThrow();
+    expect(() => p.remoteCheckoutArgs('origin/')).toThrow();
+  });
+});
