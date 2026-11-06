@@ -571,3 +571,9 @@ describe('isNewerVersion', () => {
     expect(p.isNewerVersion('0.3.0', '0.3.1')).toBe(false);
   });
 });
+
+describe('prWorktreeBranch', () => {
+  it('names the local branch after the pull request number', () => {
+    expect(p.prWorktreeBranch(42)).toBe('pr-42');
+  });
+});

@@ -882,6 +882,10 @@ function registerPrs() {
   cmd('gitKitchen.pr.merge', (n: Node) => mergePr(n, 'merge'));
   cmd('gitKitchen.pr.squash', (n: Node) => mergePr(n, 'squash'));
   cmd('gitKitchen.pr.rebase', (n: Node) => mergePr(n, 'rebase'));
+  cmd('gitKitchen.pr.openInWorktree', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest; const local = P.prWorktreeBranch(p.number);
+    if (await git(r, 'rev-parse', '--verify', '--quiet', `refs/heads/${local}`).then(() => true, () => false)) throw new Error(`A local branch named ${local} already exists. Use Create Worktree for This Branch on it instead.`);
+    await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
+    await createWorktree(r, head, local); });
   cmd('gitKitchen.pr.compare', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest;
     await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
     const base = (await git(r, 'merge-base', `origin/${p.baseRefName}`, head)).trim(); await compareRefs(r, base, head, `#${p.number}`); });

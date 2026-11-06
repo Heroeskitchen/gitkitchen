@@ -28,7 +28,7 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
 - **Worktrees**: each worktree with its branch, dirty marker and ahead/behind counts. Create a worktree from
   any branch (default folder `<parent>/<repo>.worktrees/<branch>`, or choose one) or from a new branch; open in a new or
   the current window, reveal, open a terminal, lock/unlock, move, remove and prune.
-- **Pull Requests**: open GitHub pull requests with check status and review state. Open, check out, compare,
+- **Pull Requests**: open GitHub pull requests with check status and review state. Open, check out, compare, open in a worktree,
   and merge, squash-merge or rebase-merge. Create a pull request from any branch with the title and body
   prefilled from its commits.
 - **File History**: every commit that touched the current file.

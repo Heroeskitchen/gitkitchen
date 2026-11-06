@@ -738,3 +738,6 @@ export function isNewerVersion(a: string, b: string): boolean {
   for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0); }
   return false;
 }
+
+/** Local branch name used for a pull request checked out into its own worktree. */
+export const prWorktreeBranch = (number: number) => `pr-${number}`;

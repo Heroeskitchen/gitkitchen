@@ -237,6 +237,11 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.pr.openInWorktree",
+        "title": "Open in Worktree…",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.pr.merge",
         "title": "Merge…",
         "category": "Git Kitchen"
@@ -1027,6 +1032,11 @@
           "group": "1_a@3"
         },
         {
+          "command": "gitKitchen.pr.openInWorktree",
+          "when": "view == gitKitchen.prs && viewItem == pr",
+          "group": "1_a@4"
+        },
+        {
           "command": "gitKitchen.pr.merge",
           "when": "view == gitKitchen.prs && viewItem == pr",
           "group": "2_m@1"
@@ -1417,6 +1427,10 @@
         },
         {
           "command": "gitKitchen.pr.compare",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.pr.openInWorktree",
           "when": "false"
         },
         {
