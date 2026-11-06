@@ -743,3 +743,21 @@ export function isNewerVersion(a: string, b: string): boolean {
 export function branchPrBadge(pr: PullRequest | undefined, show: boolean): string {
   return pr && show ? prBadge(pr) : '';
 }
+
+export type PrStatus = 'draft' | 'blocked' | 'changes requested' | 'needs review' | 'checks pending' | 'ready to merge';
+/** One state for a pull request row, from its draft flag, merge state, checks and review decision. */
+export function prStatus(p: Pick<PullRequest, 'isDraft' | 'mergeable' | 'checks' | 'reviewDecision'>): PrStatus {
+  if (p.isDraft) return 'draft';
+  if (p.mergeable === 'CONFLICTING' || p.checks === 'fail') return 'blocked';
+  if (p.reviewDecision === 'CHANGES_REQUESTED') return 'changes requested';
+  if (p.reviewDecision === 'REVIEW_REQUIRED') return 'needs review';
+  if (p.checks === 'pending') return 'checks pending';
+  return 'ready to merge';
+}
+
+/** Git argument lists to check out a remote-tracking branch such as `origin/feat/x`: fetch it first, then create the tracking branch. */
+export function remoteCheckoutArgs(full: string): { fetch: string[]; switch: string[] } {
+  const i = full.indexOf('/');
+  if (i <= 0 || i === full.length - 1) throw new Error(`Not a remote branch: ${full}`);
+  return { fetch: ['fetch', full.slice(0, i), full.slice(i + 1)], switch: ['switch', '--track', full] };
+}
