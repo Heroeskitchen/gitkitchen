@@ -739,6 +739,12 @@ export function isNewerVersion(a: string, b: string): boolean {
   return false;
 }
 
+/** Git argument lists that print a commit's or a stash's changes as a patch (renames detected, binary included). */
+export const patchArgs = {
+  commit: (sha: string) => ['show', '--format=', '-M', '--binary', '-m', '--first-parent', sha],
+  stash: (ref: string) => ['stash', 'show', '-p', '-M', '--binary', ref],
+};
+
 /** The pull request badge shown on a branch row; empty when there is none or the setting hides it. */
 export function branchPrBadge(pr: PullRequest | undefined, show: boolean): string {
   return pr && show ? prBadge(pr) : '';

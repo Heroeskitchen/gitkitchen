@@ -572,6 +572,13 @@ describe('isNewerVersion', () => {
   });
 });
 
+describe('patchArgs', () => {
+  it('builds the commit and stash patch commands', () => {
+    expect(p.patchArgs.commit('abc')).toEqual(['show', '--format=', '-M', '--binary', '-m', '--first-parent', 'abc']);
+    expect(p.patchArgs.stash('stash@{1}')).toEqual(['stash', 'show', '-p', '-M', '--binary', 'stash@{1}']);
+  });
+});
+
 describe('branchPrBadge', () => {
   const pr = { number: 7, title: 't', headRefName: 'x', baseRefName: 'main', url: '', isDraft: false, reviewDecision: '', author: 'a', checks: 'none' as const, mergeable: '' };
   it('shows the badge only when enabled and a pull request exists', () => {

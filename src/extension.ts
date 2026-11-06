@@ -549,6 +549,7 @@ function registerStashes() {
   cmd('gitKitchen.stash.applyRef', async (ref: string) => { const r = await root(); await git(r, 'stash', 'apply', ref); refreshAll(); });
   cmd('gitKitchen.stash.apply', async (n: Node) => { const r = await root(); await git(r, 'stash', 'apply', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.pop', async (n: Node) => { const r = await root(); await git(r, 'stash', 'pop', n.data.stash.ref); refreshAll(); });
+  cmd('gitKitchen.stash.copyPatch', async (n: Node) => { const r = await root(); await vscode.env.clipboard.writeText(await git(r, ...P.patchArgs.stash(n.data.stash.ref))); vscode.window.setStatusBarMessage('Copied stash patch', 2000); });
   cmd('gitKitchen.stash.drop', async (n: Node) => { const r = await root(); if (!await confirm(`Delete ${n.data.stash.ref}: ${n.data.stash.message}?`, 'Delete')) return; await git(r, 'stash', 'drop', n.data.stash.ref); refreshAll(); });
   cmd('gitKitchen.stash.openFile', async (n: Node) => { const r = n.data.root; const parent = await parentOf(r, n.data.sha);
     // Untracked files live in the third parent; fall back to an empty left side.
@@ -755,6 +756,7 @@ function registerHistory() {
     const v = views['gitKitchen.commits']; const nodes = await refCommits(a.root, 'HEAD', 'commits'); const hit = nodes.find(x => x.data?.sha === a.sha);
     if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
   });
+  cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await vscode.env.clipboard.writeText(await git(a.root, ...P.patchArgs.commit(a.sha))); vscode.window.setStatusBarMessage('Copied commit patch', 2000); });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
