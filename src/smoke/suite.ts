@@ -166,7 +166,7 @@ export async function run() {
     assert.ok(!JSON.stringify(pj).includes('git-branch-create'));
     const inl = pj.menus['view/item/context'].filter((e: any) => e.group.startsWith('inline') && e.when.includes('gitKitchen.branches'));
     const ids = inl.map((e: any) => e.command.replace('gitKitchen.', ''));
-    assert.deepStrictEqual(ids.sort(), ['branch.compareHead', 'branch.pull', 'branch.push', 'branch.switch', 'pr.create', 'pr.open'].sort());
+    assert.deepStrictEqual(ids.sort(), ['branch.pull', 'branch.pullFromCurrent', 'branch.push', 'branch.switch', 'pr.create', 'pr.open'].sort());
     const ctxKey = (cv: string) => inl.filter((e: any) => { const m = /viewItem =~ \/(.*?)\/(?:\)|$| )/g; let ok = true; let x; while ((x = m.exec(e.when))) if (!new RegExp(x[1]).test(cv)) ok = false; return ok; }).length;
     for (const cv of ['branch.current.noWorktree.tracked', 'branch.current.noWorktree.tracked.hasPr', 'branch.noWorktree', 'branch.noWorktree.hasPr', 'branch.worktree.tracked']) assert.ok(ctxKey(cv) <= 3, cv + ' ' + ctxKey(cv));
     assert.strictEqual(ctxKey('branch.current.noWorktree.tracked'), 3); assert.strictEqual(ctxKey('branch.noWorktree'), 3);

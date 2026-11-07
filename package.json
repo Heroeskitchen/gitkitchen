@@ -70,6 +70,17 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.branch.pullFromCurrent",
+        "title": "Pull From Current Branch",
+        "category": "Git Kitchen",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "gitKitchen.branch.pullFrom",
+        "title": "Pull From…",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.branch.rebase",
         "title": "Rebase Current Branch onto…",
         "category": "Git Kitchen"
@@ -837,6 +848,16 @@
           "group": "9_danger@1"
         },
         {
+          "command": "gitKitchen.branch.pullFromCurrent",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
+          "group": "2_b@0.1"
+        },
+        {
+          "command": "gitKitchen.branch.pullFrom",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
+          "group": "2_b@0.2"
+        },
+        {
           "command": "gitKitchen.branch.merge",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
           "group": "2_b@1"
@@ -932,7 +953,7 @@
           "group": "inline@1"
         },
         {
-          "command": "gitKitchen.branch.compareHead",
+          "command": "gitKitchen.branch.pullFromCurrent",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
           "group": "inline@2"
         },
@@ -1311,6 +1332,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "gitKitchen.branch.pullFromCurrent",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.pullFrom",
+          "when": "false"
+        },
         {
           "command": "gitKitchen.commit.copyPatch",
           "when": "false"

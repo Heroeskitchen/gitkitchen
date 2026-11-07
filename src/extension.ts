@@ -466,6 +466,16 @@ function registerBranches() {
       if (/not fully merged/.test(e.stderr ?? '') && await confirm(`"${b}" is not fully merged. Delete it anyway? Its unmerged commits will only be reachable from the reflog.`, 'Delete anyway')) await git(r, 'branch', '-D', b); else throw e;
     } refreshAll(); });
   cmd('gitKitchen.branch.merge', async (n: Node) => { const r = await root(); await withProgress(`Merging ${bn(n)}`, () => git(r, 'merge', '--no-edit', bn(n))); refreshAll(); });
+  cmd('gitKitchen.branch.pullFromCurrent', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim();
+    if (!cur) throw new Error('HEAD is detached; switch to a branch first.'); await mergeInto(r, cur, bn(n)); });
+  cmd('gitKitchen.branch.pullFrom', async (n: Node) => { const r = await root(); const target = bn(n);
+    const out = await git(r, 'for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes');
+    const source = await vscode.window.showQuickPick(P.parseNameList(out).filter(b => b !== target && !b.endsWith('/HEAD')), { title: `Pull into ${target} from…` });
+    if (!source) return;
+    // Like the editor's own Pull from…: a remote branch is fetched first, then merged in.
+    const remote = P.parseRemotes(await git(r, 'remote', '-v')).map(x => x.name).find(rm => source.startsWith(`${rm}/`));
+    if (remote) await withProgress(`Fetching ${source}`, () => git(r, 'fetch', remote, source.slice(remote.length + 1)));
+    await mergeInto(r, source, target); });
   cmd('gitKitchen.branch.rebase', async (n: Node) => { const r = await root(); if (!await confirm(`Rebase the current branch onto "${bn(n)}"?`, 'Rebase')) return; await withProgress('Rebasing', () => git(r, 'rebase', bn(n))); refreshAll(); });
   cmd('gitKitchen.branch.reset', async (n: Node) => { const r = await root(); const mode = await vscode.window.showQuickPick(['--mixed', '--soft', '--hard'], { title: `Reset current branch to ${bn(n)}` }); if (!mode) return;
     if (!await confirm(`Reset the current branch to "${bn(n)}" (${mode})?${mode === '--hard' ? ' Uncommitted changes will be lost.' : ''}`, 'Reset')) return; await git(r, 'reset', mode, bn(n)); refreshAll(); });
@@ -830,6 +840,24 @@ async function loadWorktrees(n?: Node): Promise<Node[]> {
 async function wtPathFromNode(n: Node): Promise<string> {
   if (n.data.path) return n.data.path;
   const p = n.data.branch?.worktreePath; if (p) return p; throw new Error('No worktree for this branch.');
+}
+/** Merge `source` into `target` without switching: in its worktree if it has one, else fast-forward or a merge commit built with merge-tree. */
+async function mergeInto(r: string, source: string, target: string) {
+  const cur = (await git(r, 'branch', '--show-current')).trim();
+  const wt = target === cur ? r : await worktreePathOf(r, target);
+  if (wt) { await withProgress(`Pulling ${source} into ${target}`, () => git(wt, 'merge', '--no-edit', source)).finally(refreshAll); return; }
+  const t = (await git(r, 'rev-parse', `refs/heads/${target}`)).trim(); const s = (await git(r, 'rev-parse', `${source}^{commit}`)).trim();
+  const isAncestor = (a: string, b: string) => git(r, 'merge-base', '--is-ancestor', a, b).then(() => true, () => false);
+  if (await isAncestor(s, t)) { vscode.window.showInformationMessage(`${target} already has everything from ${source}.`); return; }
+  if (await isAncestor(t, s)) { await git(r, 'update-ref', `refs/heads/${target}`, s, t); refreshAll(); vscode.window.setStatusBarMessage(`Fast-forwarded ${target} to ${source}`, 4000); return; }
+  const tree = await git(r, 'merge-tree', '--write-tree', '--no-messages', t, s).then(o => o.split('\n')[0].trim(), () => '');
+  if (!tree) {
+    const go = 'Switch and Merge';
+    if (await vscode.window.showWarningMessage(`Pulling ${source} into ${target} has conflicts. Switch to ${target} and merge there to resolve them?`, { modal: true }, go) !== go) return;
+    await git(r, 'switch', target); await git(r, 'merge', '--no-edit', source).catch(() => undefined); refreshAll(); return;
+  }
+  const commit = (await git(r, 'commit-tree', tree, '-p', t, '-p', s, '-m', `Merge branch '${source}' into ${target}`)).trim();
+  await git(r, 'update-ref', `refs/heads/${target}`, commit, t); refreshAll(); vscode.window.setStatusBarMessage(`Pulled ${source} into ${target}`, 4000);
 }
 async function worktreePathOf(r: string, branch: string): Promise<string | undefined> {
   return P.parseWorktrees(await git(r, 'worktree', 'list', '--porcelain')).find(w => w.branch === branch)?.path;
