@@ -603,6 +603,12 @@ const modifiedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine:
 /** Deleted lines: a red bar on the line after the deletion, with a small wedge at its top. No scrollbar ticks (the editor draws its own). */
 const deletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('editorGutter.deletedBackground'),
   before: { contentText: '', width: '0', height: '0', textDecoration: 'none; position: absolute; margin-left: -2px; margin-top: -4px; border-left: 6px solid var(--vscode-editorGutter-deletedBackground); border-top: 4px solid transparent; border-bottom: 4px solid transparent;' } });
+/** Unstaged changes (not committed, not staged): warning-colour tint and bar, a wedge where lines were deleted, one scrollbar tick. */
+const unstagedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.unstagedBackground'), borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('gitKitchen.unstagedForeground'),
+  overviewRulerColor: new vscode.ThemeColor('gitKitchen.unstagedForeground'), overviewRulerLane: vscode.OverviewRulerLane.Left });
+const unstagedDeletedDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, borderWidth: '0 0 0 2px', borderStyle: 'solid', borderColor: new vscode.ThemeColor('gitKitchen.unstagedForeground'),
+  overviewRulerColor: new vscode.ThemeColor('gitKitchen.unstagedForeground'), overviewRulerLane: vscode.OverviewRulerLane.Left,
+  before: { contentText: '', width: '0', height: '0', textDecoration: 'none; position: absolute; margin-left: -2px; margin-top: -4px; border-left: 6px solid var(--vscode-gitKitchen-unstagedForeground); border-top: 4px solid transparent; border-bottom: 4px solid transparent;' } });
 const sameCommitDeco = vscode.window.createTextEditorDecorationType({ isWholeLine: true, backgroundColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerColor: new vscode.ThemeColor('gitKitchen.sameCommitBackground'), overviewRulerLane: vscode.OverviewRulerLane.Center });
 const statusItem = vscode.window.createStatusBarItem('gitKitchen.blame', vscode.StatusBarAlignment.Left, 50);
 statusItem.name = 'Git Kitchen Blame';
@@ -618,7 +624,7 @@ async function setAnnot(m: AnnotMode) {
   for (const [k, v] of [['gutterBlame', annot === 'blame'], ['heatmap', annot === 'heatmap'], ['changes', annot === 'changes']] as const) await vscode.commands.executeCommand('setContext', `gitKitchen.${k}`, v);
   await updateBlame();
 }
-function clearAll(ed: vscode.TextEditor) { statusItem.hide(); lastChanges = undefined; lastSame = []; for (const d of [eolDeco, gutterDeco, lineHighlightDeco, addedDeco, modifiedDeco, deletedDeco, sameCommitDeco, ...heatGutter, ...heatBg]) ed.setDecorations(d, []); }
+function clearAll(ed: vscode.TextEditor) { statusItem.hide(); lastChanges = undefined; lastSame = []; for (const d of [eolDeco, gutterDeco, lineHighlightDeco, addedDeco, modifiedDeco, deletedDeco, unstagedDeco, unstagedDeletedDeco, sameCommitDeco, ...heatGutter, ...heatBg]) ed.setDecorations(d, []); }
 async function updateBlame() {
   const ed = vscode.window.activeTextEditor; if (!ed) return;
   const cfg = vscode.workspace.getConfiguration('gitKitchen');
@@ -654,24 +660,30 @@ async function updateBlame() {
     heatSet.forEach((d, i) => ed.setDecorations(d, buckets[i]));
   }
   if (annot === 'changes' || cfg.get('changes.gutter', true)) {
-    const base = annot === 'changes' && changesBase ? changesBase : 'HEAD';
-    const args = ['diff', '-U0', '--no-color', '--no-ext-diff', base, '--', rel(b.r, ed.document.fileName)];
-    let diff = '';
-    if (ed.document.isDirty) {
-      const { runStdout } = await import('./git');
-      const baseText = await git(b.r, 'show', `${base}:${rel(b.r, ed.document.fileName)}`).catch(() => '');
-      const os = await import('os'); const fs = await import('fs');
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-')); const a = path.join(dir, 'a'), c = path.join(dir, 'b');
-      fs.writeFileSync(a, baseText); fs.writeFileSync(c, ed.document.getText());
-      diff = await runStdout('git', ['diff', '--no-index', '-U0', '--no-color', '--no-ext-diff', a, c], b.r);
-      fs.rmSync(dir, { recursive: true, force: true });
-    } else diff = await git(b.r, ...args).catch(() => '');
-    lastChanges = P.classifyChanges(diff);
-    const r1 = (n: number) => new vscode.Range(n - 1, 0, n - 1, 0);
-    ed.setDecorations(addedDeco, lastChanges.added.map(r1));
-    ed.setDecorations(modifiedDeco, lastChanges.modified.map(r1));
-    ed.setDecorations(deletedDeco, lastChanges.deletedAfter.map(n => new vscode.Range(Math.max(0, n), 0, Math.max(0, n), 0)));
-  } else { lastChanges = undefined; ed.setDecorations(addedDeco, []); ed.setDecorations(modifiedDeco, []); ed.setDecorations(deletedDeco, []); }
+    const custom = annot === 'changes' && !!changesBase; const base = custom ? changesBase! : 'HEAD';
+    const file = rel(b.r, ed.document.fileName);
+    const all = P.classifyChanges(await changesDiff(b.r, ed.document, base, file));
+    // Unstaged (index vs working copy) lines get the warning colour; the rest of what differs from HEAD is staged.
+    const un = custom ? { added: [], modified: [], deletedAfter: [] } : P.classifyChanges(await changesDiff(b.r, ed.document, undefined, file));
+    const split = P.splitUnstaged(all, un);
+    lastChanges = all;
+    const r1 = (n: number) => new vscode.Range(n - 1, 0, n - 1, 0); const after = (n: number) => new vscode.Range(Math.max(0, n), 0, Math.max(0, n), 0);
+    ed.setDecorations(addedDeco, split.staged.added.map(r1));
+    ed.setDecorations(modifiedDeco, split.staged.modified.map(r1));
+    ed.setDecorations(deletedDeco, split.staged.deletedAfter.map(after));
+    ed.setDecorations(unstagedDeco, split.unstaged.lines.map(r1));
+    ed.setDecorations(unstagedDeletedDeco, split.unstaged.deletedAfter.map(after));
+  } else { lastChanges = undefined; for (const d of [addedDeco, modifiedDeco, deletedDeco, unstagedDeco, unstagedDeletedDeco]) ed.setDecorations(d, []); }
+}
+/** `git diff -U0` of the file (or its unsaved buffer) against `base`, or against the staged copy when `base` is undefined. */
+async function changesDiff(r: string, doc: vscode.TextDocument, base: string | undefined, file: string): Promise<string> {
+  if (!doc.isDirty) return git(r, 'diff', '-U0', '--no-color', '--no-ext-diff', ...(base ? [base] : []), '--', file).catch(() => '');
+  const { runStdout } = await import('./git');
+  const baseText = await git(r, 'show', `${base ?? ''}:${file}`).catch(() => '');
+  const os = await import('os'); const fs = await import('fs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-')); const a = path.join(dir, 'a'), c = path.join(dir, 'b');
+  fs.writeFileSync(a, baseText); fs.writeFileSync(c, doc.getText());
+  try { return await runStdout('git', ['diff', '--no-index', '-U0', '--no-color', '--no-ext-diff', a, c], r); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 const hoverProvider: vscode.HoverProvider = {
   async provideHover(doc, pos) {
@@ -711,7 +723,7 @@ function registerBlame() {
   cmd('gitKitchen.compareCommitWorking', compareCommitWorking);
   cmd('gitKitchen.blame.openLineCommit', async () => { const ed = vscode.window.activeTextEditor; if (!ed) return; const b = await blameFor(ed.document); const bl = b?.lines[ed.selection.active.line];
     if (!b || !bl || bl.uncommitted) { vscode.window.showInformationMessage('This line is not committed yet.'); return; } await openCommitDiff({ root: b.r, sha: bl.sha, file: bl.filename }); });
-  ctx.subscriptions.push(eolDeco, gutterDeco, lineHighlightDeco, addedDeco, modifiedDeco, deletedDeco, sameCommitDeco, statusItem, ...heatGutter, ...heatBg,
+  ctx.subscriptions.push(eolDeco, gutterDeco, lineHighlightDeco, addedDeco, modifiedDeco, deletedDeco, unstagedDeco, unstagedDeletedDeco, sameCommitDeco, statusItem, ...heatGutter, ...heatBg,
     vscode.languages.registerHoverProvider({ scheme: 'file' }, hoverProvider),
     vscode.window.onDidChangeTextEditorSelection(scheduleBlame), vscode.window.onDidChangeActiveTextEditor(scheduleBlame),
     vscode.workspace.onDidSaveTextDocument(d => { blameCache.delete(d.uri.fsPath); scheduleBlame(); }),
