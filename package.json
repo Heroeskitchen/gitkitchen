@@ -2,7 +2,7 @@
   "name": "gitkitchen",
   "displayName": "Git Kitchen",
   "description": "Branches, remotes, stashes, worktrees, pull requests, blame and history for the editor.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "heroeskitchen",
   "license": "MIT",
   "repository": {
@@ -22,6 +22,7 @@
   ],
   "scripts": {
     "compile": "tsc -p .",
+    "vscode:prepublish": "npm run compile",
     "test": "vitest run",
     "smoke": "npm run compile && node ./out/smoke/run.js",
     "package": "vsce package --no-dependencies"
