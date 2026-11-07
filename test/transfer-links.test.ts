@@ -233,8 +233,11 @@ describe('transfer links', () => {
 
     const file = registryPath(privateOps);
     expect(file.endsWith(join('transfer', 'links.json'))).toBe(true);
-    expect((statSync(file).mode & 0o777)).toBe(0o600);
-    expect((statSync(join(privateOps, 'transfer')).mode & 0o777)).toBe(0o700);
+    // Windows has no POSIX permission bits, so the mode check only runs elsewhere.
+    if (process.platform !== 'win32') {
+      expect((statSync(file).mode & 0o777)).toBe(0o600);
+      expect((statSync(join(privateOps, 'transfer')).mode & 0o777)).toBe(0o700);
+    }
     expect(readFileSync(file, 'utf8')).not.toContain('dualRemote');
     expect(listFiles(tmp).filter(rel => rel.endsWith('settings.json') || rel.includes('.vscode'))).toEqual([]);
     untouched();
