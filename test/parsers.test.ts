@@ -632,3 +632,15 @@ describe('remoteCheckoutArgs', () => {
     expect(() => p.remoteCheckoutArgs('origin/')).toThrow();
   });
 });
+
+describe('splitUnstaged', () => {
+  it('moves lines changed in the working copy out of the staged bars', () => {
+    const all = { added: [10, 11], modified: [4, 5], deletedAfter: [20, 30] };
+    const un = { added: [11], modified: [5], deletedAfter: [30] };
+    expect(p.splitUnstaged(all, un)).toEqual({ staged: { added: [10], modified: [4], deletedAfter: [20] }, unstaged: { lines: [5, 11], deletedAfter: [30] } });
+  });
+  it('treats everything as staged when nothing is unstaged', () => {
+    const all = { added: [1], modified: [], deletedAfter: [3] };
+    expect(p.splitUnstaged(all, { added: [], modified: [], deletedAfter: [] }).staged).toEqual(all);
+  });
+});

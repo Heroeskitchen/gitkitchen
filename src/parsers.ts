@@ -282,6 +282,15 @@ export function classifyChanges(diff: string): LineChanges {
   return res;
 }
 
+/** Split changes against HEAD into staged ones and unstaged ones (`unstaged` is the index-vs-working-copy diff; both use working-copy line numbers). */
+export function splitUnstaged(all: LineChanges, unstaged: LineChanges): { staged: LineChanges; unstaged: { lines: number[]; deletedAfter: number[] } } {
+  const lines = [...new Set([...unstaged.added, ...unstaged.modified])].sort((a, b) => a - b); const u = new Set(lines); const ud = new Set(unstaged.deletedAfter);
+  return {
+    staged: { added: all.added.filter(n => !u.has(n)), modified: all.modified.filter(n => !u.has(n)), deletedAfter: all.deletedAfter.filter(n => !ud.has(n)) },
+    unstaged: { lines, deletedAfter: [...ud].sort((a, b) => a - b) },
+  };
+}
+
 /** Final line numbers (1-based) of other lines blamed to the same commit as `line`. Empty for uncommitted lines. */
 export function sameCommitLines(lines: BlameLine[], line: number): number[] {
   const cur = lines.find(l => l.line === line); if (!cur || cur.uncommitted) return [];

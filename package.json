@@ -1746,6 +1746,26 @@
           "highContrast": null,
           "highContrastLight": null
         }
+      },
+      {
+        "id": "gitKitchen.unstagedForeground",
+        "description": "Bar, wedge and scrollbar tick for changes that are not committed and not staged.",
+        "defaults": {
+          "dark": "#f92672",
+          "light": "#d81b60",
+          "highContrast": "#f92672",
+          "highContrastLight": "#d81b60"
+        }
+      },
+      {
+        "id": "gitKitchen.unstagedBackground",
+        "description": "Line tint for changes that are not committed and not staged.",
+        "defaults": {
+          "dark": "#f9267224",
+          "light": "#d81b601a",
+          "highContrast": null,
+          "highContrastLight": null
+        }
       }
     ],
     "views": {
