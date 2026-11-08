@@ -404,7 +404,7 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const hasWt = !!b.worktreePath && !b.current;
   const fav = favoriteBranches().has(b.name);
   // The current branch is marked with an arrow right after its name; the label outranks the description, so hover icons never hide it.
-  const x = new Node(b.current ? `${label} →` : label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : '', fav ? 'favorite' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
+  const x = new Node(b.current ? `${label} ←` : label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : '', fav ? 'favorite' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
   const showPr = vscode.workspace.getConfiguration('gitKitchen').get('branches.showPrBadges', true);
   x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [fav ? '★' : '', P.branchPrBadge(pr, showPr), hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);

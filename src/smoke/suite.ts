@@ -27,17 +27,17 @@ export async function run() {
     assert.deepStrictEqual(missing, []);
   });
   await check('branches tree groups by prefix with current first', async () => {
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main →', 'feature', 'merged-one', 'chore', 'old']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main ←', 'feature', 'merged-one', 'chore', 'old']);
     assert.ok(n[0].contextValue.includes('current')); assert.strictEqual(n[1].contextValue, 'branchFolder');
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('sortBy', 'name', vscode.ConfigurationTarget.Global);
-    assert.deepStrictEqual((await t.loadBranches()).map((x: any) => x.label), ['main →', 'chore', 'feature', 'old', 'merged-one']);
+    assert.deepStrictEqual((await t.loadBranches()).map((x: any) => x.label), ['main ←', 'chore', 'feature', 'old', 'merged-one']);
     await c.update('sortBy', undefined, vscode.ConfigurationTarget.Global);
     const kids = await t.loadBranches(n[1]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
     assert.ok(kids[0].contextValue.includes('worktree')); assert.match(String(kids[0].description), /^no upstream • (.*ago|just now) • worktree$/);
   });
   await check('branches list layout setting flattens', async () => {
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.layout', 'list', vscode.ConfigurationTarget.Global);
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label).sort(), ['chore/aging', 'feature/one', 'feature/two', 'main →', 'merged-one', 'old/stale']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label).sort(), ['chore/aging', 'feature/one', 'feature/two', 'main ←', 'merged-one', 'old/stale']);
     await c.update('branches.layout', undefined, vscode.ConfigurationTarget.Global);
   });
   await check('commits view lists commits and their files', async () => {
@@ -267,7 +267,7 @@ export async function run() {
     const main = flat.find(x => x.data.branch.name === 'main'); const stale = flat.find(x => x.data.branch.name === 'old/stale'); const aging = flat.find(x => x.data.branch.name === 'chore/aging');
     for (const x of [main, stale, aging]) { assert.strictEqual(x.resourceUri.scheme, 'gitkitchen-branch'); assert.strictEqual(x.command, undefined); assert.ok(x.iconPath instanceof vscode.ThemeIcon); }
     const dec = (x: any) => t.branchDecorations.provideFileDecoration(x.resourceUri, new vscode.CancellationTokenSource().token);
-    assert.strictEqual(main.label, 'main →'); assert.strictEqual(dec(main), undefined);
+    assert.strictEqual(main.label, 'main ←'); assert.strictEqual(dec(main), undefined);
     for (const x of [stale, aging]) { assert.strictEqual(dec(x), undefined); assert.strictEqual(x.iconPath.color, undefined); }
   });
   await check('stash rows: inline apply and trash; delete asks first', async () => {
@@ -323,7 +323,7 @@ export async function run() {
     sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local only');
     try {
       const ahead = (await t.loadBranches())[0];
-      assert.match(ahead.iconPath.dark.path, /branch-ahead-dark\.svg$/); assert.ok(fs.existsSync(ahead.iconPath.light.fsPath)); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.ok(String(ahead.label).endsWith(' →'));
+      assert.match(ahead.iconPath.dark.path, /branch-ahead-dark\.svg$/); assert.ok(fs.existsSync(ahead.iconPath.light.fsPath)); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.ok(String(ahead.label).endsWith(' ←'));
       assert.match(String(ahead.description), /^0↓ 1↑ ⇄ syncr\/main • /); assert.match(tip(ahead), /0 behind, 1 ahead of syncr\/main \(unpushed commits\)/);
       sh(root, 'push', '-q', 'syncr', 'main'); const synced = (await t.loadBranches())[0];
       assert.match(synced.iconPath.light.path, /branch-synced-light\.svg$/); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
