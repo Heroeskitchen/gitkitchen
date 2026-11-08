@@ -1002,6 +1002,31 @@
         "command": "gitKitchen.blame.lineHistory",
         "title": "Line History",
         "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.patchTransfer.produce",
+        "title": "Create Transfer Package…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.patchTransfer.check",
+        "title": "Check Transfer Package…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.patchTransfer.apply",
+        "title": "Apply Transfer Patch…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.patchTransfer.addLink",
+        "title": "Add Transfer Link…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.patchTransfer.disableLink",
+        "title": "Disable Transfer Link…",
+        "category": "Git Kitchen"
       }
     ],
     "menus": {
@@ -1180,6 +1205,31 @@
           "command": "gitKitchen.tag.create",
           "when": "view == gitKitchen.tags",
           "group": "navigation@1"
+        },
+        {
+          "command": "gitKitchen.patchTransfer.produce",
+          "when": "view == gitKitchen.commits",
+          "group": "4_transfer@1"
+        },
+        {
+          "command": "gitKitchen.patchTransfer.check",
+          "when": "view == gitKitchen.commits",
+          "group": "4_transfer@2"
+        },
+        {
+          "command": "gitKitchen.patchTransfer.apply",
+          "when": "view == gitKitchen.commits",
+          "group": "4_transfer@3"
+        },
+        {
+          "command": "gitKitchen.patchTransfer.addLink",
+          "when": "view == gitKitchen.commits",
+          "group": "4_transfer@4"
+        },
+        {
+          "command": "gitKitchen.patchTransfer.disableLink",
+          "when": "view == gitKitchen.commits",
+          "group": "4_transfer@5"
         }
       ],
       "view/item/context": [
