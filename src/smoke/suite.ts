@@ -27,17 +27,17 @@ export async function run() {
     assert.deepStrictEqual(missing, []);
   });
   await check('branches tree groups by prefix with current first', async () => {
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main', 'feature', 'merged-one', 'chore', 'old']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label), ['main →', 'feature', 'merged-one', 'chore', 'old']);
     assert.ok(n[0].contextValue.includes('current')); assert.strictEqual(n[1].contextValue, 'branchFolder');
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('sortBy', 'name', vscode.ConfigurationTarget.Global);
-    assert.deepStrictEqual((await t.loadBranches()).map((x: any) => x.label), ['main', 'chore', 'feature', 'old', 'merged-one']);
+    assert.deepStrictEqual((await t.loadBranches()).map((x: any) => x.label), ['main →', 'chore', 'feature', 'old', 'merged-one']);
     await c.update('sortBy', undefined, vscode.ConfigurationTarget.Global);
     const kids = await t.loadBranches(n[1]); assert.deepStrictEqual(kids.map((x: any) => x.label), ['one', 'two']);
     assert.ok(kids[0].contextValue.includes('worktree')); assert.match(String(kids[0].description), /^no upstream • (.*ago|just now) • worktree$/);
   });
   await check('branches list layout setting flattens', async () => {
     const c = vscode.workspace.getConfiguration('gitKitchen'); await c.update('branches.layout', 'list', vscode.ConfigurationTarget.Global);
-    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label).sort(), ['chore/aging', 'feature/one', 'feature/two', 'main', 'merged-one', 'old/stale']);
+    const n = await t.loadBranches(); assert.deepStrictEqual(n.map((x: any) => x.label).sort(), ['chore/aging', 'feature/one', 'feature/two', 'main →', 'merged-one', 'old/stale']);
     await c.update('branches.layout', undefined, vscode.ConfigurationTarget.Global);
   });
   await check('commits view lists commits and their files', async () => {
