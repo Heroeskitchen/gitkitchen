@@ -358,6 +358,11 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.commit.cherryPick",
+        "title": "Cherry Pick Commit",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.commit.copyPatch",
         "title": "Copy Changes (Patch)",
         "category": "Git Kitchen"
@@ -1159,6 +1164,11 @@
           "group": "1@3"
         },
         {
+          "command": "gitKitchen.commit.cherryPick",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "1@4"
+        },
+        {
           "command": "gitKitchen.commit.copyLink",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@1"
@@ -1343,6 +1353,10 @@
         },
         {
           "command": "gitKitchen.commit.copyPatch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.cherryPick",
           "when": "false"
         },
         {

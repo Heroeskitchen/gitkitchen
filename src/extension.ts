@@ -793,6 +793,9 @@ function registerHistory() {
     if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
   });
   cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await vscode.env.clipboard.writeText(await git(a.root, ...P.patchArgs.commit(a.sha))); vscode.window.setStatusBarMessage('Copied commit patch', 2000); });
+  cmd('gitKitchen.commit.cherryPick', async (n: any) => { const c = commitArg(n); const cur = (await git(c.root, 'branch', '--show-current')).trim() || 'HEAD';
+    if (!await confirm(`Cherry pick ${c.sha.slice(0, 7)} onto "${cur}"?`, 'Cherry Pick')) return;
+    try { await withProgress('Cherry picking', () => git(c.root, 'cherry-pick', c.sha)); } finally { refreshAll(); } });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
