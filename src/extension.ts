@@ -394,19 +394,17 @@ const activeLabelDecorations: vscode.FileDecorationProvider = {
   provideFileDecoration(uri) {
     if (uri.scheme === CHANGE_SCHEME) { const st = STATUS_INFO[uri.query]; return st ? { badge: uri.query, tooltip: st.tip, color: new vscode.ThemeColor(st.color), propagate: false } : undefined; }
     if (uri.scheme !== BRANCH_SCHEME) return;
-    // The current branch always gets a check badge at the right edge of the row, whatever its sync color.
-    const current = uri.fragment === 'current';
-    const color = BRANCH_LABEL_COLOR[uri.query];
-    const colorLabel = !!color && vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true);
-    if (!current && !colorLabel) return;
-    return { color: colorLabel ? new vscode.ThemeColor(color) : undefined, badge: current ? '✓' : undefined, tooltip: current ? 'Current branch' : undefined, propagate: false };
+    const color = BRANCH_LABEL_COLOR[uri.query]; if (!color) return;
+    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true)) return;
+    return { color: new vscode.ThemeColor(color), propagate: false };
   },
 };
 function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
   const pr = prs.find(p => p.headRefName === b.name);
   const hasWt = !!b.worktreePath && !b.current;
   const fav = favoriteBranches().has(b.name);
-  const x = new Node(label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : '', fav ? 'favorite' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
+  // The current branch is marked with an arrow right after its name; the label outranks the description, so hover icons never hide it.
+  const x = new Node(b.current ? `${label} →` : label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : '', fav ? 'favorite' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
   const showPr = vscode.workspace.getConfiguration('gitKitchen').get('branches.showPrBadges', true);
   x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [fav ? '★' : '', P.branchPrBadge(pr, showPr), hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);
@@ -424,7 +422,7 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   // The worktree codicon is missing in some hosts, so an uncolored worktree row uses a bundled glyph.
   x.iconPath = dot && glyph ? overlayIcon(glyph, dot) : st.icon === 'worktree' ? overlayIcon('worktree', 'plain') : icon(st.icon);
   // The URI only carries the label color; rows have no open command.
-  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone, fragment: b.current ? 'current' : '' });
+  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone });
   x.id = `branch:${b.name}`; x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
   return x;
 }
