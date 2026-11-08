@@ -469,6 +469,17 @@ function registerBranches() {
     try { await git(r, 'branch', '-d', b); } catch (e: any) {
       if (/not fully merged/.test(e.stderr ?? '') && await confirm(`"${b}" is not fully merged. Delete it anyway? Its unmerged commits will only be reachable from the reflog.`, 'Delete anyway')) await git(r, 'branch', '-D', b); else throw e;
     } refreshAll(); });
+  cmd('gitKitchen.branch.forceDelete', async (n: Node) => { const r = await root(); const b = bn(n);
+    if (!await confirm(`Force delete local branch "${b}"? Unmerged commits will only be reachable from the reflog.`, 'Force Delete')) return;
+    await git(r, 'branch', '-D', b); refreshAll(); });
+  cmd('gitKitchen.branch.deleteLocalAndRemote', async (n: Node) => { const r = await root(); const b = bn(n); const up = (n.data.branch as P.Branch | undefined)?.upstream; const i = up ? up.indexOf('/') : -1;
+    if (!up || i < 1) throw new Error(`"${b}" has no upstream branch to delete.`);
+    const remote = up.slice(0, i), rb = up.slice(i + 1);
+    if (!await confirm(`Delete local branch "${b}" and ${up} on the remote? Deleting the remote branch cannot be undone from here.`, 'Delete Both')) return;
+    try { await git(r, 'branch', '-d', b); } catch (e: any) {
+      if (/not fully merged/.test(e.stderr ?? '') && await confirm(`"${b}" is not fully merged. Delete it anyway?`, 'Delete anyway')) await git(r, 'branch', '-D', b); else throw e;
+    }
+    await withProgress(`Deleting ${up}`, () => git(r, 'push', remote, '--delete', rb)); refreshAll(); });
   cmd('gitKitchen.branch.merge', async (n: Node) => { const r = await root(); await withProgress(`Merging ${bn(n)}`, () => git(r, 'merge', '--no-edit', bn(n))); refreshAll(); });
   cmd('gitKitchen.branch.pullFromCurrent', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim();
     if (!cur) throw new Error('HEAD is detached; switch to a branch first.'); await mergeInto(r, cur, bn(n)); });
