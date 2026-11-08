@@ -793,9 +793,23 @@ function registerHistory() {
     if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
   });
   cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await vscode.env.clipboard.writeText(await git(a.root, ...P.patchArgs.commit(a.sha))); vscode.window.setStatusBarMessage('Copied commit patch', 2000); });
-  cmd('gitKitchen.commit.cherryPick', async (n: any) => { const c = commitArg(n); const cur = (await git(c.root, 'branch', '--show-current')).trim() || 'HEAD';
-    if (!await confirm(`Cherry pick ${c.sha.slice(0, 7)} onto "${cur}"?`, 'Cherry Pick')) return;
-    try { await withProgress('Cherry picking', () => git(c.root, 'cherry-pick', c.sha)); } finally { refreshAll(); } });
+  /** Commits to act on: every selected commit row (oldest first) when the clicked row is part of a multi-select, else the clicked row. */
+  const pickCommits = async (n: any, sel?: any[]): Promise<{ root: string; shas: string[] }> => {
+    const c = commitArg(n); const rows = (sel ?? []).map(commitArg).filter(x => x?.sha && x.root === c.root);
+    const shas = rows.length > 1 && rows.some(x => x.sha === c.sha) ? [...new Set(rows.map(x => x.sha))] : [c.sha];
+    if (shas.length < 2) return { root: c.root, shas };
+    return { root: c.root, shas: (await git(c.root, 'rev-list', '--no-walk', '--date-order', '--reverse', ...shas)).split('\n').filter(Boolean) };
+  };
+  const label = (shas: string[]) => shas.length === 1 ? shas[0].slice(0, 7) : `${shas.length} commits`;
+  cmd('gitKitchen.commit.cherryPick', async (n: any, sel?: any[]) => { const { root: cr, shas } = await pickCommits(n, sel); const cur = (await git(cr, 'branch', '--show-current')).trim() || 'HEAD';
+    if (!await confirm(`Cherry pick ${label(shas)} onto "${cur}"?`, 'Cherry Pick')) return;
+    try { await withProgress('Cherry picking', () => git(cr, 'cherry-pick', ...shas)); } finally { refreshAll(); } });
+  cmd('gitKitchen.commit.revert', async (n: any, sel?: any[]) => { const { root: cr, shas } = await pickCommits(n, sel); const cur = (await git(cr, 'branch', '--show-current')).trim() || 'HEAD';
+    if (!await confirm(`Revert ${label(shas)} on "${cur}"? This creates new commits that undo the changes.`, 'Revert')) return;
+    try { await withProgress('Reverting', () => git(cr, 'revert', '--no-edit', ...[...shas].reverse())); } finally { refreshAll(); } });
+  cmd('gitKitchen.commit.checkout', async (n: any) => { const c = commitArg(n);
+    if (!await confirm(`Check out ${c.sha.slice(0, 7)}? HEAD will be detached.`, 'Checkout')) return;
+    try { await withProgress('Checking out', () => git(c.root, 'checkout', '--detach', c.sha)); } finally { refreshAll(); } });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
@@ -840,7 +854,7 @@ async function loadWorktrees(n?: Node): Promise<Node[]> {
       const m = /(\d+)\s+(\d+)/.exec(t); if (m) ab = [+m[2] ? `↑${m[2]}` : '', +m[1] ? `↓${m[1]}` : ''].filter(Boolean).join(' ');
     }
     x.description = [dirty ? '●' : '', ab, w.locked ? 'locked' : '', w.prunable ? 'missing' : '', path.relative(r, w.path) || '.'].filter(Boolean).join('  ');
-    const subj = w.head ? (await git(r, 'log', '-1', '--format=%s', w.head).catch(() => '')).trim() : ''; x.tooltip = md(P.worktreeCardMarkdown(w, { dirty, subject: subj })); x.iconPath = icon(w.locked ? 'lock' : 'worktree', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined);
+    const subj = w.head ? (await git(r, 'log', '-1', '--format=%s', w.head).catch(() => '')).trim() : ''; x.tooltip = md(P.worktreeCardMarkdown(w, { dirty, subject: subj })); x.iconPath = w.locked ? icon('lock', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined) : overlayIcon('worktree', dirty ? 'dirty' : 'plain');
     return x;
   }));
 }
@@ -1151,7 +1165,7 @@ function registerLens() {
 export async function activate(c: vscode.ExtensionContext) {
   ctx = c;
   c.subscriptions.push(out, vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RefContent()));
-  const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true }); c.subscriptions.push(v); views[id] = v; return v; };
+  const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true, canSelectMany: true }); c.subscriptions.push(v); views[id] = v; return v; };
   view('gitKitchen.branches', new Tree(loadBranches));
   view('gitKitchen.remotes', new Tree(loadRemotes));
   view('gitKitchen.commits', new Tree(loadCommits));

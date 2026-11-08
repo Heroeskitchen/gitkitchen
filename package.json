@@ -363,6 +363,16 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.commit.revert",
+        "title": "Revert Commit",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.checkout",
+        "title": "Checkout Commit (Detached)",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.commit.copyPatch",
         "title": "Copy Changes (Patch)",
         "category": "Git Kitchen"
@@ -1169,6 +1179,16 @@
           "group": "1@4"
         },
         {
+          "command": "gitKitchen.commit.revert",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "1@5"
+        },
+        {
+          "command": "gitKitchen.commit.checkout",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "1@6"
+        },
+        {
           "command": "gitKitchen.commit.copyLink",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@1"
@@ -1357,6 +1377,14 @@
         },
         {
           "command": "gitKitchen.commit.cherryPick",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.revert",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.checkout",
           "when": "false"
         },
         {
