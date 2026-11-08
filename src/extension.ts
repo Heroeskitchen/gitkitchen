@@ -4,6 +4,11 @@ import * as fs from 'fs';
 import { git, gh, repoRoot } from './git';
 import * as P from './parsers';
 import * as S from './scripts';
+import { applyTransfer, formatEvidence } from './transfer/apply';
+import { checkTransfer, retrievePackage, CheckResult } from './transfer/check';
+import { resolveActor } from './transfer/identity';
+import { addLink, disableLink, loadRegistry } from './transfer/links';
+import { produceTransferPackage } from './transfer/produce';
 
 const SCHEME = 'gitkitchen';
 let ctx: vscode.ExtensionContext;
@@ -1398,7 +1403,7 @@ export async function activate(c: vscode.ExtensionContext) {
   view('gitKitchen.todos', new Tree(loadTodos));
   scriptsTree = new Tree(loadScripts, async () => {}); view('gitKitchen.scripts', scriptsTree); registerScripts();
   historyTree = new Tree(loadHistory); historyView = view('gitKitchen.history', historyTree);
-  registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerGaps(); registerStashPickers(); registerPrs(); registerDual(); registerMerged(); registerExplorer();
+  registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerGaps(); registerStashPickers(); registerPrs(); registerDual(); registerMerged(); registerExplorer(); registerTransfer();
   cmd('gitKitchen.commits.loadMore', async (key = 'commits') => { refLimits.set(key, (refLimits.get(key) ?? 50) + 50); refreshAll(); });
   cmd('gitKitchen.diffFile', async (r: string, l: string | undefined, rt: string | undefined, f: string, old?: string) => {
     await diffFile(r, l, rt, f, old); });
@@ -1466,4 +1471,116 @@ function registerCommitsToolbar() {
   cmd('gitKitchen.commits.showAvatars', () => setCfg('avatars', true));
   cmd('gitKitchen.commits.hideMerges', () => setCfg('commits.hideMerges', true));
   cmd('gitKitchen.commits.showMerges', () => setCfg('commits.hideMerges', false));
+}
+
+// ---------- patch transfer ----------
+// Check and apply run only for a person at the editor (palette or menu, no arguments).
+// Links live in the extension's private storage, never in a repo or workspace file.
+
+function transferOps(): string { return ctx.globalStorageUri.fsPath; }
+
+function transferRefuseText(r: CheckResult | { outcome: string; reason?: string; detail?: string }): string {
+  const x = r as { outcome: string; reason?: string; detail?: string };
+  const why: Record<string, string> = {
+    actor: 'Transfer check and apply run only from the editor, not from an agent or a script.',
+    disabled: 'This link is disabled.', confirm: 'Not confirmed. Nothing was changed.',
+    dirty: 'The target has uncommitted changes.', 'target-moved': 'The target is not at the commit this link was set up for.',
+    hash: 'The patch hash does not match the one you gave.', 'apply-check': 'The patch does not apply cleanly to the target.',
+    duplicate: 'This package was already applied to this link.', 'target-changed': 'The target changed while waiting. Nothing was changed.',
+    protected: 'The patch touches a protected path.', symlink: 'The patch goes through a symlink.', eol: 'Line endings do not match the package.',
+    'case-collision': 'A file name differs only by letter case.', binary: 'Binary changes are not supported.', scrub: 'The package carries a trace and was refused.',
+    locked: 'Another apply is running for this link.', 'apply-failed': 'The apply failed and was rolled back.',
+  };
+  const key = x.outcome === 'blocked' || x.outcome === 'refuse' ? (x.reason ?? '') : x.outcome;
+  return (why[key] ?? `Refused (${key}${x.detail ? `: ${x.detail}` : ''}).`);
+}
+
+async function pickTransferPackage(hk: string): Promise<{ commit: string; packagePath: string; sha: string } | undefined> {
+  const head = (await git(hk, 'rev-parse', 'HEAD')).trim();
+  const commit = (await vscode.window.showInputBox({ title: 'Transfer package commit', prompt: 'Full commit sha that holds the package', value: head }))?.trim();
+  if (!commit) return undefined;
+  const files = (await git(hk, 'ls-tree', '-r', '--name-only', commit, '--', 'transfer/patches')).split('\n').filter(f => f.endsWith('/changes.patch'));
+  if (!files.length) throw new Error('No package under transfer/patches in that commit.');
+  const pick = await vscode.window.showQuickPick(files.map(f => path.posix.dirname(f)), { title: 'Transfer package' });
+  if (!pick) return undefined;
+  const sha = (await vscode.window.showInputBox({ title: 'Patch hash', prompt: 'SHA-256 of changes.patch from the review notice', ignoreFocusOut: true }))?.trim().toLowerCase();
+  if (!sha) return undefined;
+  return { commit, packagePath: pick, sha };
+}
+
+async function transferRun(mode: 'check' | 'apply', args: unknown[]) {
+  const actor = resolveActor({ args });
+  if (actor !== 'workbench') { vscode.window.showErrorMessage(transferRefuseText({ outcome: 'blocked', reason: 'actor' })); return; }
+  const ops = transferOps();
+  const links = loadRegistry(ops).links.filter(l => !l.disabled);
+  if (!links.length) { vscode.window.showErrorMessage('No transfer link yet. Run "Add Transfer Link" first.'); return; }
+  const link = await vscode.window.showQuickPick(links.map(l => ({ label: l.linkId, description: path.basename(l.targetPath) })), { title: 'Transfer link' });
+  if (!link) return;
+  const hk = await root();
+  const pkg = await pickTransferPackage(hk);
+  if (!pkg) return;
+  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: mode === 'check' ? 'Checking transfer' : 'Applying transfer', cancellable: true }, async (_p, token) => {
+    const ctl = new AbortController(); token.onCancellationRequested(() => ctl.abort());
+    const got = await retrievePackage({ hkRepo: hk, commit: pkg.commit, packagePath: pkg.packagePath, patchSha256: pkg.sha });
+    if (got.outcome === 'timeout') { vscode.window.showErrorMessage('Could not read the package. Try again.'); return; }
+    if (got.outcome === 'refuse') { vscode.window.showErrorMessage(got.reason === 'hash' ? transferRefuseText({ outcome: 'refuse', reason: 'hash' }) : `Package not available (${got.reason}).`); return; }
+    try {
+      const base = { privateOps: ops, linkId: link.label, packageDir: got.dir, expectedPatchSha256: pkg.sha, actor, signal: ctl.signal };
+      if (mode === 'check') {
+        const r = await checkTransfer(base);
+        if (r.outcome === 'PASS') vscode.window.showInformationMessage(`Check passed for ${link.label}. ${r.paths.length} file(s) would change. The target was not touched.`);
+        else if (r.outcome === 'cancel') vscode.window.showInformationMessage('Cancelled. Nothing was changed.');
+        else vscode.window.showErrorMessage(transferRefuseText(r));
+        return;
+      }
+      const r = await applyTransfer({ ...base, confirm: msg => confirm(msg, 'Apply') });
+      if (r.outcome === 'success') {
+        const act = await vscode.window.showInformationMessage(`Applied to ${r.evidence.target}. Changes are uncommitted. Not pushed.`, 'Copy Summary');
+        if (act) await vscode.env.clipboard.writeText(formatEvidence(r.evidence));
+      } else if (r.outcome === 'cancel') vscode.window.showInformationMessage('Cancelled. The target was restored.');
+      else vscode.window.showErrorMessage(transferRefuseText(r));
+    } finally { got.cleanup(); }
+  });
+}
+
+function registerTransfer() {
+  cmd('gitKitchen.patchTransfer.produce', async (...a: any[]) => {
+    const given = (a[0] && typeof a[0] === 'object') ? a[0] as Record<string, string> : {};
+    const r0 = await root();
+    const ask = async (title: string, value?: string) => given[title] ?? (await vscode.window.showInputBox({ title, value, ignoreFocusOut: true }))?.trim();
+    const linkId = await ask('linkId'); if (!linkId) return;
+    const base = await ask('base', 'origin/main'); if (!base) return;
+    const tip = await ask('tip', 'HEAD'); if (!tip) return;
+    const slug = await ask('slug'); if (!slug) return;
+    const r = await produceTransferPackage({ sourceRepo: r0, base, tip, linkId, slug });
+    if (r.outcome === 'refuse') { vscode.window.showErrorMessage(`Package not created (${r.reason}).`); return; }
+    const act = await vscode.window.showInformationMessage(`Package written to ${r.relDir}. Commit it to share it.`, 'Copy Hash');
+    if (act) await vscode.env.clipboard.writeText(r.patchSha256);
+    refreshAll();
+  });
+  cmd('gitKitchen.patchTransfer.check', (...a: any[]) => transferRun('check', a));
+  cmd('gitKitchen.patchTransfer.apply', (...a: any[]) => transferRun('apply', a));
+  cmd('gitKitchen.patchTransfer.addLink', async (...a: any[]) => {
+    if (resolveActor({ args: a }) !== 'workbench') { vscode.window.showErrorMessage(transferRefuseText({ outcome: 'blocked', reason: 'actor' })); return; }
+    const ops = transferOps();
+    const reg = loadRegistry(ops);
+    const folder = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, title: 'Target repository folder' });
+    if (!folder?.length) return;
+    const target = folder[0].fsPath;
+    let rootDir = reg.root;
+    if (!rootDir) {
+      const rd = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, title: 'Folder that holds every link target', defaultUri: vscode.Uri.file(path.dirname(target)) });
+      if (!rd?.length) return; rootDir = rd[0].fsPath;
+    }
+    const linkId = (await vscode.window.showInputBox({ title: 'Link id', prompt: 'A short opaque token, not a name', ignoreFocusOut: true }))?.trim(); if (!linkId) return;
+    const sha = (await git(target, 'rev-parse', 'HEAD')).trim();
+    addLink(ops, rootDir, { linkId, targetPath: target, targetBaseSha: sha });
+    vscode.window.showInformationMessage(`Link ${linkId} added at the target's current commit.`);
+  });
+  cmd('gitKitchen.patchTransfer.disableLink', async (...a: any[]) => {
+    if (resolveActor({ args: a }) !== 'workbench') { vscode.window.showErrorMessage(transferRefuseText({ outcome: 'blocked', reason: 'actor' })); return; }
+    const ops = transferOps();
+    const pick = await vscode.window.showQuickPick(loadRegistry(ops).links.filter(l => !l.disabled).map(l => l.linkId), { title: 'Disable transfer link' });
+    if (pick) { disableLink(ops, pick); vscode.window.showInformationMessage(`Link ${pick} disabled.`); }
+  });
 }

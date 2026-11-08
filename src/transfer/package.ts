@@ -393,7 +393,7 @@ function isDenyGlob(value: unknown): value is string {
   return !value.split('/').includes('..');
 }
 
-function globDenied(globs: string[], rel: string): boolean {
+export function globDenied(globs: string[], rel: string): boolean {
   return globs.some(glob => globMatch(glob, rel));
 }
 

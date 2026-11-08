@@ -71,6 +71,17 @@ Click a script to open its source. With a script file, `package.json` or a Makef
 
 Destructive actions (delete, drop, reset, remove, prune, push, merge) ask for confirmation first.
 
+### Patch transfer
+
+Move a change from one repo to a linked repo as a checked patch package. Commands are in the Commits view `...` menu and the command palette.
+
+- **Create Transfer Package** writes `changes.patch`, `manifest.json` and `SHA256SUMS` under `transfer/patches/<link>/<date>-<slug>/` in the open repo. Commit the files to share them.
+- **Add Transfer Link** links an opaque id to a local target repo. Links are stored in the extension's private storage, not in any repo or workspace file.
+- **Check Transfer Package** reads the package from a commit, verifies the hash you give it, and dry-runs it on the target. It writes nothing.
+- **Apply Transfer Patch** repeats the check, asks you to confirm, then applies the patch to the target working tree. Changes stay uncommitted. Git Kitchen never commits, branches or pushes in the target, and rolls back if the apply fails or is cancelled.
+
+Check and apply run only from the palette or a menu. An invoke that carries arguments, or an agent or cloud session, is refused.
+
 ## Requirements
 - [git](https://git-scm.com/) on your `PATH`.
 - [GitHub CLI](https://cli.github.com/) (`gh`), signed in with `gh auth login`, for the Pull Requests view
