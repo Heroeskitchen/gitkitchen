@@ -267,7 +267,8 @@ export async function run() {
     const main = flat.find(x => x.data.branch.name === 'main'); const stale = flat.find(x => x.data.branch.name === 'old/stale'); const aging = flat.find(x => x.data.branch.name === 'chore/aging');
     for (const x of [main, stale, aging]) { assert.strictEqual(x.resourceUri.scheme, 'gitkitchen-branch'); assert.strictEqual(x.command, undefined); assert.ok(x.iconPath instanceof vscode.ThemeIcon); }
     const dec = (x: any) => t.branchDecorations.provideFileDecoration(x.resourceUri, new vscode.CancellationTokenSource().token);
-    for (const x of [main, stale, aging]) { assert.strictEqual(dec(x), undefined); assert.strictEqual(x.iconPath.color, undefined); }
+    assert.strictEqual(dec(main).badge, '✓'); assert.strictEqual(dec(main).tooltip, 'Current branch'); assert.strictEqual(dec(main).color, undefined);
+    for (const x of [stale, aging]) { assert.strictEqual(dec(x), undefined); assert.strictEqual(x.iconPath.color, undefined); }
   });
   await check('stash rows: inline apply and trash; delete asks first', async () => {
     const pkg = require(path.join(__dirname, '..', '..', 'package.json'));
@@ -322,12 +323,12 @@ export async function run() {
     sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local only');
     try {
       const ahead = (await t.loadBranches())[0];
-      assert.match(ahead.iconPath.dark.path, /branch-ahead-dark\.svg$/); assert.ok(fs.existsSync(ahead.iconPath.light.fsPath)); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).badge, undefined);
+      assert.match(ahead.iconPath.dark.path, /branch-ahead-dark\.svg$/); assert.ok(fs.existsSync(ahead.iconPath.light.fsPath)); assert.strictEqual(dec(ahead).color.id, 'gitKitchen.branchAheadForeground'); assert.strictEqual(dec(ahead).badge, '✓');
       assert.match(String(ahead.description), /^0↓ 1↑ ⇄ syncr\/main • /); assert.match(tip(ahead), /0 behind, 1 ahead of syncr\/main \(unpushed commits\)/);
       sh(root, 'push', '-q', 'syncr', 'main'); const synced = (await t.loadBranches())[0];
       assert.match(synced.iconPath.light.path, /branch-synced-light\.svg$/); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
       await c.update('recentSyncMinutes', 0, vscode.ConfigurationTarget.Global); await new Promise(r => setTimeout(r, 1100));
-      const old = (await t.loadBranches())[0]; assert.strictEqual(old.iconPath.color, undefined); assert.strictEqual(dec(old), undefined);
+      const old = (await t.loadBranches())[0]; assert.strictEqual(old.iconPath.color, undefined); assert.strictEqual(dec(old).color, undefined);
       await c.update('recentSyncMinutes', undefined, vscode.ConfigurationTarget.Global);
       sh(other, 'clone', '-q', '-b', 'main', bare, '.'); sh(other, 'commit', '-q', '--allow-empty', '-m', 'Remote'); sh(other, 'push', '-q', 'origin', 'HEAD:main');
       sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local again'); sh(root, 'fetch', '-q', 'syncr');

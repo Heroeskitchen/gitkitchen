@@ -358,6 +358,31 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.branch.forceDelete",
+        "title": "Force Delete Branch",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.deleteLocalAndRemote",
+        "title": "Delete Local and Remote Branch",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.cherryPick",
+        "title": "Cherry Pick Commit",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.revert",
+        "title": "Revert Commit",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.checkout",
+        "title": "Checkout Commit (Detached)",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.commit.copyPatch",
         "title": "Copy Changes (Patch)",
         "category": "Git Kitchen"
@@ -849,6 +874,16 @@
           "group": "9_danger@1"
         },
         {
+          "command": "gitKitchen.branch.forceDelete",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
+          "group": "9_danger@2"
+        },
+        {
+          "command": "gitKitchen.branch.deleteLocalAndRemote",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/ && viewItem =~ /tracked/",
+          "group": "9_danger@3"
+        },
+        {
           "command": "gitKitchen.branch.pullFromCurrent",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
           "group": "2_b@0.1"
@@ -1159,6 +1194,21 @@
           "group": "1@3"
         },
         {
+          "command": "gitKitchen.commit.cherryPick",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "1@4"
+        },
+        {
+          "command": "gitKitchen.commit.revert",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "1@5"
+        },
+        {
+          "command": "gitKitchen.commit.checkout",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "1@6"
+        },
+        {
           "command": "gitKitchen.commit.copyLink",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "2@1"
@@ -1343,6 +1393,26 @@
         },
         {
           "command": "gitKitchen.commit.copyPatch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.forceDelete",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.deleteLocalAndRemote",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.cherryPick",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.revert",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.checkout",
           "when": "false"
         },
         {

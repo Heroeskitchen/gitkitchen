@@ -393,9 +393,12 @@ const activeLabelDecorations: vscode.FileDecorationProvider = {
   provideFileDecoration(uri) {
     if (uri.scheme === CHANGE_SCHEME) { const st = STATUS_INFO[uri.query]; return st ? { badge: uri.query, tooltip: st.tip, color: new vscode.ThemeColor(st.color), propagate: false } : undefined; }
     if (uri.scheme !== BRANCH_SCHEME) return;
-    const color = BRANCH_LABEL_COLOR[uri.query]; if (!color) return;
-    if (!vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true)) return;
-    return { color: new vscode.ThemeColor(color), propagate: false };
+    // The current branch always gets a check badge at the right edge of the row, whatever its sync color.
+    const current = uri.fragment === 'current';
+    const color = BRANCH_LABEL_COLOR[uri.query];
+    const colorLabel = !!color && vscode.workspace.getConfiguration('gitKitchen').get('branches.colorLabels', true);
+    if (!current && !colorLabel) return;
+    return { color: colorLabel ? new vscode.ThemeColor(color) : undefined, badge: current ? '✓' : undefined, tooltip: current ? 'Current branch' : undefined, propagate: false };
   },
 };
 function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string): Node {
@@ -416,9 +419,10 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
     pr: brPr ? { number: brPr.number, state: brPr.isDraft && brPr.state === 'OPEN' ? 'DRAFT' : brPr.state, url: prUrl } : undefined }));
   // Every colored state: its glyph in that color with a matching dot; merged: default glyph, purple dot.
   const dot = mergedRow ? 'merged' : tone; const glyph = GLYPH_FILE[st.icon];
-  x.iconPath = dot && glyph ? overlayIcon(glyph, dot) : icon(st.icon);
+  // The worktree codicon is missing in some hosts, so an uncolored worktree row uses a bundled glyph.
+  x.iconPath = dot && glyph ? overlayIcon(glyph, dot) : st.icon === 'worktree' ? overlayIcon('worktree', 'plain') : icon(st.icon);
   // The URI only carries the label color; rows have no open command.
-  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone });
+  x.resourceUri = vscode.Uri.from({ scheme: BRANCH_SCHEME, path: '/' + b.name, query: tone, fragment: b.current ? 'current' : '' });
   x.id = `branch:${b.name}`; x.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
   return x;
 }
@@ -465,6 +469,17 @@ function registerBranches() {
     try { await git(r, 'branch', '-d', b); } catch (e: any) {
       if (/not fully merged/.test(e.stderr ?? '') && await confirm(`"${b}" is not fully merged. Delete it anyway? Its unmerged commits will only be reachable from the reflog.`, 'Delete anyway')) await git(r, 'branch', '-D', b); else throw e;
     } refreshAll(); });
+  cmd('gitKitchen.branch.forceDelete', async (n: Node) => { const r = await root(); const b = bn(n);
+    if (!await confirm(`Force delete local branch "${b}"? Unmerged commits will only be reachable from the reflog.`, 'Force Delete')) return;
+    await git(r, 'branch', '-D', b); refreshAll(); });
+  cmd('gitKitchen.branch.deleteLocalAndRemote', async (n: Node) => { const r = await root(); const b = bn(n); const up = (n.data.branch as P.Branch | undefined)?.upstream; const i = up ? up.indexOf('/') : -1;
+    if (!up || i < 1) throw new Error(`"${b}" has no upstream branch to delete.`);
+    const remote = up.slice(0, i), rb = up.slice(i + 1);
+    if (!await confirm(`Delete local branch "${b}" and ${up} on the remote? Deleting the remote branch cannot be undone from here.`, 'Delete Both')) return;
+    try { await git(r, 'branch', '-d', b); } catch (e: any) {
+      if (/not fully merged/.test(e.stderr ?? '') && await confirm(`"${b}" is not fully merged. Delete it anyway?`, 'Delete anyway')) await git(r, 'branch', '-D', b); else throw e;
+    }
+    await withProgress(`Deleting ${up}`, () => git(r, 'push', remote, '--delete', rb)); refreshAll(); });
   cmd('gitKitchen.branch.merge', async (n: Node) => { const r = await root(); await withProgress(`Merging ${bn(n)}`, () => git(r, 'merge', '--no-edit', bn(n))); refreshAll(); });
   cmd('gitKitchen.branch.pullFromCurrent', async (n: Node) => { const r = await root(); const cur = (await git(r, 'branch', '--show-current')).trim();
     if (!cur) throw new Error('HEAD is detached; switch to a branch first.'); await mergeInto(r, cur, bn(n)); });
@@ -789,6 +804,23 @@ function registerHistory() {
     if (hit && v) await v.reveal(hit, { select: true, focus: true }); else vscode.window.showInformationMessage(`${a.sha.slice(0, 7)} is not in the loaded commits.`);
   });
   cmd('gitKitchen.commit.copyPatch', async (n: any) => { const a = commitArg(n); await vscode.env.clipboard.writeText(await git(a.root, ...P.patchArgs.commit(a.sha))); vscode.window.setStatusBarMessage('Copied commit patch', 2000); });
+  /** Commits to act on: every selected commit row (oldest first) when the clicked row is part of a multi-select, else the clicked row. */
+  const pickCommits = async (n: any, sel?: any[]): Promise<{ root: string; shas: string[] }> => {
+    const c = commitArg(n); const rows = (sel ?? []).map(commitArg).filter(x => x?.sha && x.root === c.root);
+    const shas = rows.length > 1 && rows.some(x => x.sha === c.sha) ? [...new Set(rows.map(x => x.sha))] : [c.sha];
+    if (shas.length < 2) return { root: c.root, shas };
+    return { root: c.root, shas: (await git(c.root, 'rev-list', '--no-walk', '--date-order', '--reverse', ...shas)).split('\n').filter(Boolean) };
+  };
+  const label = (shas: string[]) => shas.length === 1 ? shas[0].slice(0, 7) : `${shas.length} commits`;
+  cmd('gitKitchen.commit.cherryPick', async (n: any, sel?: any[]) => { const { root: cr, shas } = await pickCommits(n, sel); const cur = (await git(cr, 'branch', '--show-current')).trim() || 'HEAD';
+    if (!await confirm(`Cherry pick ${label(shas)} onto "${cur}"?`, 'Cherry Pick')) return;
+    try { await withProgress('Cherry picking', () => git(cr, 'cherry-pick', ...shas)); } finally { refreshAll(); } });
+  cmd('gitKitchen.commit.revert', async (n: any, sel?: any[]) => { const { root: cr, shas } = await pickCommits(n, sel); const cur = (await git(cr, 'branch', '--show-current')).trim() || 'HEAD';
+    if (!await confirm(`Revert ${label(shas)} on "${cur}"? This creates new commits that undo the changes.`, 'Revert')) return;
+    try { await withProgress('Reverting', () => git(cr, 'revert', '--no-edit', ...[...shas].reverse())); } finally { refreshAll(); } });
+  cmd('gitKitchen.commit.checkout', async (n: any) => { const c = commitArg(n);
+    if (!await confirm(`Check out ${c.sha.slice(0, 7)}? HEAD will be detached.`, 'Checkout')) return;
+    try { await withProgress('Checking out', () => git(c.root, 'checkout', '--detach', c.sha)); } finally { refreshAll(); } });
   cmd('gitKitchen.commit.copySha', async (n: any) => { const sha = n?.data?.sha ?? n?.sha; await vscode.env.clipboard.writeText(sha); vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 7)}`, 3000); });
   cmd('gitKitchen.commit.openAllFiles', async (n: Node) => openCommitDiff({ root: n.data.root, sha: n.data.sha }));
   registerCommitActions();
@@ -833,7 +865,7 @@ async function loadWorktrees(n?: Node): Promise<Node[]> {
       const m = /(\d+)\s+(\d+)/.exec(t); if (m) ab = [+m[2] ? `↑${m[2]}` : '', +m[1] ? `↓${m[1]}` : ''].filter(Boolean).join(' ');
     }
     x.description = [dirty ? '●' : '', ab, w.locked ? 'locked' : '', w.prunable ? 'missing' : '', path.relative(r, w.path) || '.'].filter(Boolean).join('  ');
-    const subj = w.head ? (await git(r, 'log', '-1', '--format=%s', w.head).catch(() => '')).trim() : ''; x.tooltip = md(P.worktreeCardMarkdown(w, { dirty, subject: subj })); x.iconPath = icon(w.locked ? 'lock' : 'worktree', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined);
+    const subj = w.head ? (await git(r, 'log', '-1', '--format=%s', w.head).catch(() => '')).trim() : ''; x.tooltip = md(P.worktreeCardMarkdown(w, { dirty, subject: subj })); x.iconPath = w.locked ? icon('lock', dirty ? 'gitDecoration.modifiedResourceForeground' : undefined) : overlayIcon('worktree', dirty ? 'dirty' : 'plain');
     return x;
   }));
 }
@@ -1144,7 +1176,7 @@ function registerLens() {
 export async function activate(c: vscode.ExtensionContext) {
   ctx = c;
   c.subscriptions.push(out, vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RefContent()));
-  const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true }); c.subscriptions.push(v); views[id] = v; return v; };
+  const view = (id: string, t: Tree) => { trees.push(t); const v = vscode.window.createTreeView(id, { treeDataProvider: t, showCollapseAll: true, canSelectMany: true }); c.subscriptions.push(v); views[id] = v; return v; };
   view('gitKitchen.branches', new Tree(loadBranches));
   view('gitKitchen.remotes', new Tree(loadRemotes));
   view('gitKitchen.commits', new Tree(loadCommits));
