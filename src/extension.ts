@@ -289,7 +289,7 @@ function fileNodes(r: string, files: P.ChangedFile[], parent: string, sha: strin
   const leaf = (f: P.ChangedFile, label: string): Node => {
     const x = new Node(label, 'commitFile', { root: r, sha, file: f.path });
     const dir = path.dirname(f.path);
-    x.description = filesAsTree() ? (f.oldPath ? `← ${f.oldPath}` : '') : `${dir === '.' ? '' : dir}${f.oldPath ? ` ← ${f.oldPath}` : ''}`;
+    x.description = filesAsTree() ? (f.oldPath ? `◂ ${f.oldPath}` : '') : `${dir === '.' ? '' : dir}${f.oldPath ? ` ◂ ${f.oldPath}` : ''}`;
     x.resourceUri = vscode.Uri.from({ scheme: CHANGE_SCHEME, path: path.posix.join('/', r.split(path.sep).join('/'), f.path), query: f.status });
     x.iconPath = vscode.ThemeIcon.File; x.id = `${key}:f:${f.path}`;
     x.tooltip = `${f.path}${f.oldPath ? `\nrenamed from ${f.oldPath}` : ''}\n${STATUS_INFO[f.status]?.tip ?? f.status}`;
@@ -404,7 +404,7 @@ function branchNode(r: string, b: P.Branch, prs: P.PullRequest[], label: string)
   const hasWt = !!b.worktreePath && !b.current;
   const fav = favoriteBranches().has(b.name);
   // The current branch is marked with an arrow right after its name; the label outranks the description, so hover icons never hide it.
-  const x = new Node(b.current ? `${label} ←` : label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : '', fav ? 'favorite' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
+  const x = new Node(b.current ? `${label} ◂` : label, ['branch', b.current ? 'current' : '', hasWt ? 'worktree' : 'noWorktree', b.upstream ? 'tracked' : '', pr ? 'hasPr' : '', fav ? 'favorite' : ''].filter(Boolean).join('.'), { root: r, branch: b, pr });
   const showPr = vscode.workspace.getConfiguration('gitKitchen').get('branches.showPrBadges', true);
   x.description = P.branchDescription(b, b.time ? P.relativeTime(b.time) : '', [fav ? '★' : '', P.branchPrBadge(pr, showPr), hasWt ? 'worktree' : ''].filter(Boolean));
   const f = b.current ? undefined : fresh.get(b.name);
