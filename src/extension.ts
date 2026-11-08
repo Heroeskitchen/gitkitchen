@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { git, gh, repoRoot } from './git';
 import * as P from './parsers';
+import * as S from './scripts';
 import { applyTransfer, formatEvidence } from './transfer/apply';
 import { checkTransfer, retrievePackage, CheckResult } from './transfer/check';
 import { resolveActor } from './transfer/identity';
@@ -110,6 +111,7 @@ class Tree implements vscode.TreeDataProvider<Node> {
   async resolveTreeItem(item: vscode.TreeItem, n: Node) { if (this.resolve) await this.resolve(n); else await resolveCommitTooltip(n); return n; }
 }
 const trees: Tree[] = [];
+let scriptsTree: Tree;
 function refreshAll() { trees.forEach(t => t.refresh()); }
 function icon(id: string, color?: string) { return new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined); }
 const cardCache = new Map<string, Promise<{ d?: P.CommitDetails; avatar?: string; login?: string; branches: string[]; web?: string }>>();
@@ -1314,6 +1316,75 @@ function registerLens() {
     vscode.workspace.onDidSaveTextDocument(() => lensEmitter.fire()));
 }
 
+// ---------- Scripts ----------
+interface ScriptItem extends S.ScriptEntry { dir: string }
+const SCRIPT_ICONS: Record<S.ScriptKind, string> = { npm: 'package', make: 'tools', shell: 'terminal-bash', powershell: 'terminal-powershell', batch: 'terminal-cmd' };
+async function readText(p: string): Promise<string | undefined> { try { return await fs.promises.readFile(p, 'utf8'); } catch { return undefined; } }
+/** Scripts in one folder: package.json, Makefile, and runnable files in the folder itself and in scripts/. */
+async function scriptsIn(dir: string): Promise<ScriptItem[]> {
+  const out: S.ScriptEntry[] = [];
+  const names = await fs.promises.readdir(dir).catch(() => [] as string[]);
+  const pkg = await readText(path.join(dir, 'package.json'));
+  if (pkg !== undefined) out.push(...S.parsePackageScripts(pkg, S.detectPackageManager(pkg, names)));
+  const mk = names.find(n => /^(GNUmakefile|makefile|Makefile)$/.test(n));
+  if (mk) { const t = await readText(path.join(dir, mk)); if (t !== undefined) out.push(...S.parseMakeTargets(t).map(e => ({ ...e, file: mk, command: e.command }))); }
+  for (const sub of ['', 'scripts']) {
+    const list = sub ? await fs.promises.readdir(path.join(dir, sub)).catch(() => [] as string[]) : names;
+    for (const n of list.sort()) {
+      const kind = S.fileKind(n, process.platform); if (!kind) continue;
+      const stat = await fs.promises.stat(path.join(dir, sub, n)).catch(() => undefined); if (!stat?.isFile()) continue;
+      const rel = sub ? `${sub}/${n}` : n;
+      out.push({ name: n, kind, detail: sub || '.', file: rel, command: S.fileCommand(kind, `./${rel}`, process.platform) });
+    }
+  }
+  return out.map(e => ({ ...e, dir }));
+}
+async function loadScripts(n?: Node): Promise<Node[]> {
+  const folders = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+  if (!folders.length) throw new Error('Open a folder to see its scripts.');
+  if (n?.kind === 'scriptFolder') return scriptNodes(await scriptsIn(n.data.dir));
+  if (folders.length > 1) return folders.map(d => { const x = new Node(path.basename(d), 'scriptFolder', { dir: d }, vscode.TreeItemCollapsibleState.Expanded); x.iconPath = vscode.ThemeIcon.Folder; return x; });
+  const items = scriptNodes(await scriptsIn(folders[0]));
+  if (!items.length) { const x = new Node('No scripts found', 'scriptEmpty'); x.description = 'package.json, Makefile, scripts/*.sh, *.ps1'; x.iconPath = icon('info'); return [x]; }
+  return items;
+}
+function scriptNodes(items: ScriptItem[]): Node[] {
+  return items.map(it => {
+    const x = new Node(it.name, 'script', it); x.description = it.detail; x.iconPath = icon(SCRIPT_ICONS[it.kind]);
+    x.tooltip = new vscode.MarkdownString(`\`${it.command}\`\n\nin \`${it.dir}\``);
+    x.command = { command: 'gitKitchen.scripts.open', title: 'Open', arguments: [x] };
+    return x;
+  });
+}
+function runScript(it: ScriptItem) {
+  const name = `Script: ${it.name}`;
+  let t = vscode.window.terminals.find(x => x.name === name && x.exitStatus === undefined && (x.creationOptions as vscode.TerminalOptions).cwd === it.dir);
+  if (!t) t = vscode.window.createTerminal({ name, cwd: it.dir });
+  t.show(true); t.sendText(it.command);
+}
+function registerScripts() {
+  cmd('gitKitchen.scripts.run', (n: Node) => { if (n?.kind === 'script') runScript(n.data); });
+  cmd('gitKitchen.scripts.open', async (n: Node) => {
+    const it = n.data as ScriptItem; const line = (it.line ?? 1) - 1;
+    await vscode.window.showTextDocument(vscode.Uri.file(path.join(it.dir, it.file)), { selection: new vscode.Range(line, 0, line, 0), preserveFocus: true, preview: true });
+  });
+  // Editor title button: run the open script file, or pick a script from the open package.json or Makefile.
+  cmd('gitKitchen.scripts.runCurrent', async (uri?: vscode.Uri) => {
+    const u = uri ?? vscode.window.activeTextEditor?.document.uri; if (!u || u.scheme !== 'file') return;
+    if (vscode.window.activeTextEditor?.document.isDirty && vscode.window.activeTextEditor.document.uri.fsPath === u.fsPath) await vscode.window.activeTextEditor.document.save();
+    const dir = path.dirname(u.fsPath); const base = path.basename(u.fsPath);
+    const kind = S.fileKind(base, process.platform);
+    if (kind) return runScript({ name: base, kind, detail: '', file: base, dir, command: S.fileCommand(kind, `./${base}`, process.platform) });
+    const mine = (await scriptsIn(dir)).filter(s => s.file === base);
+    if (!mine.length) { vscode.window.showInformationMessage(`No scripts found in ${base}.`); return; }
+    const pick = await vscode.window.showQuickPick(mine.map(s => ({ label: s.name, description: s.detail, s })), { placeHolder: `Run a script from ${base}` });
+    if (pick) runScript(pick.s);
+  });
+  const t = scriptsTree; const bump = () => t.refresh();
+  const w = vscode.workspace.createFileSystemWatcher('**/{package.json,package-lock.json,pnpm-lock.yaml,yarn.lock,Makefile,makefile,GNUmakefile,*.sh,*.ps1,*.bat,*.cmd}');
+  ctx.subscriptions.push(w, w.onDidChange(bump), w.onDidCreate(bump), w.onDidDelete(bump), vscode.workspace.onDidChangeWorkspaceFolders(bump));
+}
+
 // ---------- activate ----------
 export async function activate(c: vscode.ExtensionContext) {
   ctx = c;
@@ -1330,6 +1401,7 @@ export async function activate(c: vscode.ExtensionContext) {
   dualView = view('gitKitchen.dual', new Tree(loadDual));
   view('gitKitchen.merged', new Tree(loadMerged));
   view('gitKitchen.todos', new Tree(loadTodos));
+  scriptsTree = new Tree(loadScripts, async () => {}); view('gitKitchen.scripts', scriptsTree); registerScripts();
   historyTree = new Tree(loadHistory); historyView = view('gitKitchen.history', historyTree);
   registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerGaps(); registerStashPickers(); registerPrs(); registerDual(); registerMerged(); registerExplorer(); registerTransfer();
   cmd('gitKitchen.commits.loadMore', async (key = 'commits') => { refLimits.set(key, (refLimits.get(key) ?? 50) + 50); refreshAll(); });

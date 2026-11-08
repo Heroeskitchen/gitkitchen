@@ -1004,6 +1004,23 @@
         "category": "Git Kitchen"
       },
       {
+        "command": "gitKitchen.scripts.run",
+        "title": "Run Script",
+        "category": "Git Kitchen",
+        "icon": "$(play)"
+      },
+      {
+        "command": "gitKitchen.scripts.open",
+        "title": "Open Script Source",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.scripts.runCurrent",
+        "title": "Run Script",
+        "category": "Git Kitchen",
+        "icon": "$(play)"
+      },
+      {
         "command": "gitKitchen.patchTransfer.produce",
         "title": "Create Transfer Package…",
         "category": "Git Kitchen"
@@ -1205,6 +1222,11 @@
           "command": "gitKitchen.tag.create",
           "when": "view == gitKitchen.tags",
           "group": "navigation@1"
+        },
+        {
+          "command": "gitKitchen.refresh",
+          "when": "view == gitKitchen.scripts",
+          "group": "navigation@9"
         },
         {
           "command": "gitKitchen.patchTransfer.produce",
@@ -1971,6 +1993,21 @@
           "command": "gitKitchen.branch.push",
           "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
           "group": "3_c@0"
+        },
+        {
+          "command": "gitKitchen.scripts.run",
+          "when": "view == gitKitchen.scripts && viewItem == script",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitKitchen.scripts.run",
+          "when": "view == gitKitchen.scripts && viewItem == script",
+          "group": "0_run@1"
+        },
+        {
+          "command": "gitKitchen.scripts.open",
+          "when": "view == gitKitchen.scripts && viewItem == script",
+          "group": "1_open@1"
         }
       ],
       "editor/title": [
@@ -2003,6 +2040,11 @@
           "submenu": "gitKitchen.annotations",
           "when": "resourceScheme == file",
           "group": "navigation@91"
+        },
+        {
+          "command": "gitKitchen.scripts.runCurrent",
+          "when": "resourceScheme == file && !isInDiffEditor && (resourceExtname == .sh || resourceExtname == .ps1 || isWindows && (resourceExtname == .bat || resourceExtname == .cmd) || resourceFilename == package.json || resourceFilename =~ /^(GNUmakefile|[Mm]akefile)$/)",
+          "group": "navigation@1"
         }
       ],
       "gitKitchen.annotations": [
@@ -2704,6 +2746,14 @@
         {
           "command": "gitKitchen.contributor.copyCoAuthor",
           "when": "false"
+        },
+        {
+          "command": "gitKitchen.scripts.run",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.scripts.open",
+          "when": "false"
         }
       ]
     },
@@ -2806,6 +2856,15 @@
         }
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gitKitchenScripts",
+          "title": "Scripts",
+          "icon": "media/icons/scripts.svg"
+        }
+      ]
+    },
     "views": {
       "scm": [
         {
@@ -2859,6 +2918,12 @@
           "id": "gitKitchen.todos",
           "name": "TODOs",
           "visibility": "collapsed"
+        }
+      ],
+      "gitKitchenScripts": [
+        {
+          "id": "gitKitchen.scripts",
+          "name": "Scripts"
         }
       ]
     },

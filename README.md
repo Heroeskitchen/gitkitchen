@@ -36,6 +36,14 @@ It runs the `git` and `gh` command-line tools you already have. No accounts, no 
 - **Merged Branches**: branches already merged into main, deleted only after you confirm each one.
 - **TODOs**: `TODO` and `FIXME` comments across the repository, grouped by file.
 
+### Scripts
+Its own Activity Bar view, separate from Source Control. Lists what can be run in the open folder, each with a play button that runs it in a terminal:
+- `package.json` scripts, run with npm, pnpm, yarn or bun (from `packageManager` or the lockfile).
+- Makefile targets.
+- `.sh` and `.ps1` files (and `.bat` / `.cmd` on Windows) in the folder root and in `scripts/`.
+
+Click a script to open its source. With a script file, `package.json` or a Makefile open, a play button sits in the editor title bar (a script file runs directly; the others ask which script).
+
 ### Editor
 - **Commit details hover** (blame hover, commit rows and status bar): author with GitHub avatar, relative and exact
   time, short SHA (click to copy), files added/changed/deleted, lines added and deleted, the full message with

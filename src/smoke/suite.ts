@@ -13,11 +13,12 @@ export async function run() {
   const t = require(path.join(ext.extensionPath, 'out', 'extension.js'))._test;
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
 
-  await check('all views live in the Source Control container', async () => {
+  await check('all views live in the Source Control container, except Scripts in its own', async () => {
     const c = ext.packageJSON.contributes;
-    assert.strictEqual(c.viewsContainers, undefined);
+    assert.deepStrictEqual(c.viewsContainers.activitybar.map((v: any) => v.id), ['gitKitchenScripts']);
     const ids = ['commits', 'branches', 'remotes', 'stashes', 'worktrees', 'prs', 'history', 'dual', 'merged', 'todos'].map(v => `gitKitchen.${v}`);
-    assert.deepStrictEqual(Object.keys(c.views), ['scm']);
+    assert.deepStrictEqual(Object.keys(c.views).sort(), ['gitKitchenScripts', 'scm']);
+    assert.deepStrictEqual(c.views.gitKitchenScripts.map((v: any) => v.id), ['gitKitchen.scripts']);
     assert.deepStrictEqual(c.views.scm.map((v: any) => v.id).sort(), ids.sort());
     for (const id of ids) await vscode.commands.executeCommand(`${id}.focus`);
   });
