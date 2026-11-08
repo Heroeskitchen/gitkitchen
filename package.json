@@ -692,6 +692,316 @@
         "command": "gitKitchen.commits.showMerges",
         "title": "Show Merge Commits",
         "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.publish",
+        "title": "Publish Branch",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.rebaseUpstream",
+        "title": "Rebase onto Upstream",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.copyRemoteUrl",
+        "title": "Copy Remote Branch URL",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.compareWorkingBase",
+        "title": "Compare Working Tree to Common Base",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.favorite",
+        "title": "Add to Favorites",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.unfavorite",
+        "title": "Remove from Favorites",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.deleteSelected",
+        "title": "Delete Selected Branches",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.branch.openSelectedOnRemote",
+        "title": "Open Selected Branches on Remote",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.createBranch",
+        "title": "Create Branch from Here…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.createTag",
+        "title": "Create Tag…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.merge",
+        "title": "Merge into Current Branch",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.rebase",
+        "title": "Rebase Current Branch onto This",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.reset",
+        "title": "Reset Current Branch to This…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.compareBase",
+        "title": "Compare with Common Base",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.compareWorking",
+        "title": "Compare Working Tree to Here",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.openOnRemote",
+        "title": "Open Branch on Remote",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.copyUrl",
+        "title": "Copy Remote Branch URL",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.createPr",
+        "title": "Create Pull Request…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remoteBranch.delete",
+        "title": "Delete Remote Branch…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remote.add",
+        "title": "Add Remote…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remote.prune",
+        "title": "Prune",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remote.setDefault",
+        "title": "Set as Default Remote",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remote.openOnRemote",
+        "title": "Open on Remote",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.remote.remove",
+        "title": "Remove Remote…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.applyPick",
+        "title": "Apply Stash…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.popPick",
+        "title": "Pop Stash…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.rename",
+        "title": "Rename Stash…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.copySha",
+        "title": "Copy Stash SHA",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.dropSelected",
+        "title": "Delete Selected Stashes",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.restoreFile",
+        "title": "Apply Changes (Restore This File)",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.stash.copyRelativePath",
+        "title": "Copy Relative Path",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.fetch",
+        "title": "Fetch",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.pull",
+        "title": "Pull",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.push",
+        "title": "Push",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.compareHead",
+        "title": "Compare with HEAD",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.copyChangesTo",
+        "title": "Copy Working Changes to Worktree…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.worktree.deleteSelected",
+        "title": "Remove Selected Worktrees",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.resetToHere",
+        "title": "Reset Current Branch to Here…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.rebaseOntoHere",
+        "title": "Rebase Current Branch onto Here",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.pushToHere",
+        "title": "Push to Here",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.createBranch",
+        "title": "Create Branch Here…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.createTag",
+        "title": "Create Tag Here…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.createWorktree",
+        "title": "Create Worktree Here…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.selectForCompare",
+        "title": "Select for Compare",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.commit.compareSelected",
+        "title": "Compare with Selected",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.openWorking",
+        "title": "Open File",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.openAtRevision",
+        "title": "Open File at Revision",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.compareWorking",
+        "title": "Open Changes with Working File",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.openOnRemote",
+        "title": "Open File on Remote",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.copyRelativePath",
+        "title": "Copy Relative Path",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.copyPatch",
+        "title": "Copy Changes (Patch)",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.file.restore",
+        "title": "Restore Changes (Checkout)…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.pr.copyUrl",
+        "title": "Copy Pull Request URL",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.tag.create",
+        "title": "Create Tag…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.tag.checkout",
+        "title": "Checkout Tag",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.tag.createBranch",
+        "title": "Create Branch from Tag…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.tag.push",
+        "title": "Push Tag",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.tag.copyName",
+        "title": "Copy Name",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.tag.delete",
+        "title": "Delete Tag…",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.contributor.copy",
+        "title": "Copy",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.contributor.copyCoAuthor",
+        "title": "Copy as Co-author",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.blame.lineHistory",
+        "title": "Line History",
+        "category": "Git Kitchen"
       }
     ],
     "menus": {
@@ -850,6 +1160,26 @@
           "command": "gitKitchen.commits.showMerges",
           "when": "view == gitKitchen.commits && config.gitKitchen.commits.hideMerges",
           "group": "3_show@2"
+        },
+        {
+          "command": "gitKitchen.remote.add",
+          "when": "view == gitKitchen.remotes",
+          "group": "1_remote@1"
+        },
+        {
+          "command": "gitKitchen.stash.applyPick",
+          "when": "view == gitKitchen.stashes",
+          "group": "1_stash@2"
+        },
+        {
+          "command": "gitKitchen.stash.popPick",
+          "when": "view == gitKitchen.stashes",
+          "group": "1_stash@3"
+        },
+        {
+          "command": "gitKitchen.tag.create",
+          "when": "view == gitKitchen.tags",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -1286,6 +1616,311 @@
           "alt": "gitKitchen.commit.copyRemoteUrl",
           "when": "viewItem =~ /^(commit|historyCommit)\\b/",
           "group": "inline@5"
+        },
+        {
+          "command": "gitKitchen.branch.publish",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem !~ /tracked/",
+          "group": "3_c@1"
+        },
+        {
+          "command": "gitKitchen.branch.rebaseUpstream",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /\\.current/ && viewItem =~ /tracked/",
+          "group": "3_c@2"
+        },
+        {
+          "command": "gitKitchen.branch.copyRemoteUrl",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/",
+          "group": "5_copy@2"
+        },
+        {
+          "command": "gitKitchen.branch.compareWorkingBase",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
+          "group": "2_compare@9"
+        },
+        {
+          "command": "gitKitchen.branch.favorite",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem !~ /favorite/",
+          "group": "5_fav@1"
+        },
+        {
+          "command": "gitKitchen.branch.unfavorite",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /favorite/",
+          "group": "5_fav@1"
+        },
+        {
+          "command": "gitKitchen.branch.deleteSelected",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/ && listMultiSelection",
+          "group": "9_danger@4"
+        },
+        {
+          "command": "gitKitchen.branch.openSelectedOnRemote",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && listMultiSelection",
+          "group": "5_copy@3"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.createBranch",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "3@1"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.createTag",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "3@2"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.merge",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "3@3"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.rebase",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "3@4"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.reset",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "3@5"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.compareBase",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "4@1"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.compareWorking",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "4@2"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.openOnRemote",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "5@1"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.copyUrl",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "5@2"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.createPr",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "5@3"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.delete",
+          "when": "view == gitKitchen.remotes && viewItem == remoteBranch",
+          "group": "9_danger@1"
+        },
+        {
+          "command": "gitKitchen.remote.prune",
+          "when": "view == gitKitchen.remotes && viewItem == remote",
+          "group": "3@1"
+        },
+        {
+          "command": "gitKitchen.remote.setDefault",
+          "when": "view == gitKitchen.remotes && viewItem == remote",
+          "group": "3@2"
+        },
+        {
+          "command": "gitKitchen.remote.openOnRemote",
+          "when": "view == gitKitchen.remotes && viewItem == remote",
+          "group": "3@3"
+        },
+        {
+          "command": "gitKitchen.remote.remove",
+          "when": "view == gitKitchen.remotes && viewItem == remote",
+          "group": "9_danger@1"
+        },
+        {
+          "command": "gitKitchen.stash.rename",
+          "when": "view == gitKitchen.stashes && viewItem == stash",
+          "group": "1@3"
+        },
+        {
+          "command": "gitKitchen.stash.copySha",
+          "when": "view == gitKitchen.stashes && viewItem == stash",
+          "group": "2@1"
+        },
+        {
+          "command": "gitKitchen.stash.dropSelected",
+          "when": "view == gitKitchen.stashes && viewItem == stash && listMultiSelection",
+          "group": "9_danger@2"
+        },
+        {
+          "command": "gitKitchen.stash.restoreFile",
+          "when": "view == gitKitchen.stashes && viewItem == stashFile",
+          "group": "1@1"
+        },
+        {
+          "command": "gitKitchen.stash.openFile",
+          "when": "view == gitKitchen.stashes && viewItem == stashFile",
+          "group": "1@2"
+        },
+        {
+          "command": "gitKitchen.stash.copyRelativePath",
+          "when": "view == gitKitchen.stashes && viewItem == stashFile",
+          "group": "2@1"
+        },
+        {
+          "command": "gitKitchen.worktree.fetch",
+          "when": "view == gitKitchen.worktrees && viewItem =~ /^worktree/",
+          "group": "6_sync@1"
+        },
+        {
+          "command": "gitKitchen.worktree.pull",
+          "when": "view == gitKitchen.worktrees && viewItem =~ /^worktree/",
+          "group": "6_sync@2"
+        },
+        {
+          "command": "gitKitchen.worktree.push",
+          "when": "view == gitKitchen.worktrees && viewItem =~ /^worktree/",
+          "group": "6_sync@3"
+        },
+        {
+          "command": "gitKitchen.worktree.compareHead",
+          "when": "view == gitKitchen.worktrees && viewItem =~ /^worktree/",
+          "group": "6_sync@4"
+        },
+        {
+          "command": "gitKitchen.worktree.copyChangesTo",
+          "when": "view == gitKitchen.worktrees && viewItem =~ /^worktree/",
+          "group": "6_sync@5"
+        },
+        {
+          "command": "gitKitchen.worktree.deleteSelected",
+          "when": "view == gitKitchen.worktrees && viewItem =~ /^worktree/ && listMultiSelection",
+          "group": "9_danger@2"
+        },
+        {
+          "command": "gitKitchen.commit.resetToHere",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "3_branch@1"
+        },
+        {
+          "command": "gitKitchen.commit.rebaseOntoHere",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "3_branch@2"
+        },
+        {
+          "command": "gitKitchen.commit.pushToHere",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "3_branch@3"
+        },
+        {
+          "command": "gitKitchen.commit.createBranch",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "4_create@1"
+        },
+        {
+          "command": "gitKitchen.commit.createTag",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "4_create@2"
+        },
+        {
+          "command": "gitKitchen.commit.createWorktree",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "4_create@3"
+        },
+        {
+          "command": "gitKitchen.commit.selectForCompare",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "5_cmp@1"
+        },
+        {
+          "command": "gitKitchen.commit.compareSelected",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/ && gitKitchen.hasCompareSelection",
+          "group": "5_cmp@2"
+        },
+        {
+          "command": "gitKitchen.commit.copyMessage",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "2@3"
+        },
+        {
+          "command": "gitKitchen.commit.search",
+          "when": "viewItem =~ /^(commit|historyCommit)\\b/",
+          "group": "5_cmp@3"
+        },
+        {
+          "command": "gitKitchen.file.openWorking",
+          "when": "viewItem == commitFile",
+          "group": "1@1"
+        },
+        {
+          "command": "gitKitchen.file.openAtRevision",
+          "when": "viewItem == commitFile",
+          "group": "1@2"
+        },
+        {
+          "command": "gitKitchen.file.compareWorking",
+          "when": "viewItem == commitFile",
+          "group": "1@3"
+        },
+        {
+          "command": "gitKitchen.file.openOnRemote",
+          "when": "viewItem == commitFile",
+          "group": "2@1"
+        },
+        {
+          "command": "gitKitchen.file.copyRelativePath",
+          "when": "viewItem == commitFile",
+          "group": "2@2"
+        },
+        {
+          "command": "gitKitchen.file.copyPatch",
+          "when": "viewItem == commitFile",
+          "group": "2@3"
+        },
+        {
+          "command": "gitKitchen.file.restore",
+          "when": "viewItem == commitFile",
+          "group": "9_danger@1"
+        },
+        {
+          "command": "gitKitchen.pr.copyUrl",
+          "when": "view == gitKitchen.prs && viewItem =~ /^pr\\b/",
+          "group": "5@9"
+        },
+        {
+          "command": "gitKitchen.tag.checkout",
+          "when": "view == gitKitchen.tags && viewItem == tag",
+          "group": "1@1"
+        },
+        {
+          "command": "gitKitchen.tag.createBranch",
+          "when": "view == gitKitchen.tags && viewItem == tag",
+          "group": "1@2"
+        },
+        {
+          "command": "gitKitchen.tag.push",
+          "when": "view == gitKitchen.tags && viewItem == tag",
+          "group": "2@1"
+        },
+        {
+          "command": "gitKitchen.tag.copyName",
+          "when": "view == gitKitchen.tags && viewItem == tag",
+          "group": "2@2"
+        },
+        {
+          "command": "gitKitchen.tag.delete",
+          "when": "view == gitKitchen.tags && viewItem == tag",
+          "group": "9_danger@1"
+        },
+        {
+          "command": "gitKitchen.contributor.copy",
+          "when": "view == gitKitchen.contributors && viewItem == contributor",
+          "group": "1@1"
+        },
+        {
+          "command": "gitKitchen.contributor.copyCoAuthor",
+          "when": "view == gitKitchen.contributors && viewItem == contributor",
+          "group": "1@2"
+        },
+        {
+          "command": "gitKitchen.branch.push",
+          "when": "view == gitKitchen.branches && viewItem =~ /^branch/ && viewItem =~ /^branch(?!\\.current)/",
+          "group": "3_c@0"
         }
       ],
       "editor/title": [
@@ -1353,6 +1988,11 @@
           "command": "gitKitchen.fileHistory",
           "when": "resourceScheme == file",
           "group": "9_gitkitchen@3"
+        },
+        {
+          "command": "gitKitchen.blame.lineHistory",
+          "when": "resourceScheme == file && editorHasSelection",
+          "group": "9_gitkitchen@9"
         }
       ],
       "explorer/context": [
@@ -1766,6 +2406,254 @@
         {
           "command": "gitKitchen.commits.showMerges",
           "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.publish",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.rebaseUpstream",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.copyRemoteUrl",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.compareWorkingBase",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.favorite",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.unfavorite",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.deleteSelected",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.branch.openSelectedOnRemote",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.createBranch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.createTag",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.merge",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.rebase",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.reset",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.compareBase",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.compareWorking",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.openOnRemote",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.copyUrl",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.createPr",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remoteBranch.delete",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remote.add",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remote.prune",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remote.setDefault",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remote.openOnRemote",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.remote.remove",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.applyPick",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.popPick",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.rename",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.copySha",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.dropSelected",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.restoreFile",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.stash.copyRelativePath",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.fetch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.pull",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.push",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.compareHead",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.copyChangesTo",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.worktree.deleteSelected",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.resetToHere",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.rebaseOntoHere",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.pushToHere",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.createBranch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.createTag",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.createWorktree",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.selectForCompare",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.compareSelected",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.commit.search",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.openWorking",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.openAtRevision",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.compareWorking",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.openOnRemote",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.copyRelativePath",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.copyPatch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.file.restore",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.pr.copyUrl",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.tag.create",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.tag.checkout",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.tag.createBranch",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.tag.push",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.tag.copyName",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.tag.delete",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.contributor.copy",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.contributor.copyCoAuthor",
+          "when": "false"
         }
       ]
     },
@@ -1885,6 +2773,14 @@
         {
           "id": "gitKitchen.stashes",
           "name": "Stashes"
+        },
+        {
+          "id": "gitKitchen.tags",
+          "name": "Tags"
+        },
+        {
+          "id": "gitKitchen.contributors",
+          "name": "Contributors"
         },
         {
           "id": "gitKitchen.worktrees",
@@ -2093,7 +2989,11 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["linkId", "targetPath", "targetBaseSha"],
+                "required": [
+                  "linkId",
+                  "targetPath",
+                  "targetBaseSha"
+                ],
                 "properties": {
                   "linkId": {
                     "type": "string",
@@ -2114,13 +3014,17 @@
                   },
                   "agentLaunch": {
                     "type": "string",
-                    "enum": ["denied"],
+                    "enum": [
+                      "denied"
+                    ],
                     "default": "denied",
                     "description": "Agent launch in the target stays denied. The target path is data only."
                   },
                   "agentApply": {
                     "type": "string",
-                    "enum": ["denied"],
+                    "enum": [
+                      "denied"
+                    ],
                     "default": "denied",
                     "description": "Agent apply in the target stays denied. The target path is data only."
                   },
