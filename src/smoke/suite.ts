@@ -328,7 +328,7 @@ export async function run() {
       sh(root, 'push', '-q', 'syncr', 'main'); const synced = (await t.loadBranches())[0];
       assert.match(synced.iconPath.light.path, /branch-synced-light\.svg$/); assert.strictEqual(dec(synced).color.id, 'gitKitchen.branchSyncedForeground'); assert.match(String(synced.description), /^⇄ syncr\/main • /);
       await c.update('recentSyncMinutes', 0, vscode.ConfigurationTarget.Global); await new Promise(r => setTimeout(r, 1100));
-      const old = (await t.loadBranches())[0]; assert.strictEqual(old.iconPath.color, undefined); assert.strictEqual(dec(old), undefined);
+      const old = (await t.loadBranches())[0]; assert.strictEqual(old.iconPath.color, undefined); assert.strictEqual(dec(old).color, undefined);
       await c.update('recentSyncMinutes', undefined, vscode.ConfigurationTarget.Global);
       sh(other, 'clone', '-q', '-b', 'main', bare, '.'); sh(other, 'commit', '-q', '--allow-empty', '-m', 'Remote'); sh(other, 'push', '-q', 'origin', 'HEAD:main');
       sh(root, 'commit', '-q', '--allow-empty', '-m', 'Local again'); sh(root, 'fetch', '-q', 'syncr');
