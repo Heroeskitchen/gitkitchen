@@ -26,4 +26,9 @@ describe('commit row hover actions', () => {
     const groups = inline.map(m => m.group);
     expect(new Set(groups).size).toBe(groups.length);
   });
+  it('offers Undo Commit in the right-click menu and the Commits view menu, not only on hover', () => {
+    const undo = menus['view/item/context'].filter((m: any) => m.command === 'gitKitchen.commit.undo').map((m: any) => m.group);
+    expect(undo).toContain('inline@1'); expect(undo).toContain('1@7');
+    expect(menus['view/title'].some((m: any) => m.command === 'gitKitchen.commit.undo' && m.when === 'view == gitKitchen.commits')).toBe(true);
+  });
 });
