@@ -1015,6 +1015,15 @@ function registerGaps() {
   cmd('gitKitchen.file.openAtRevision', async (n: Node) => { const a = fileArg(n); await vscode.commands.executeCommand('vscode.open', refUri(a.root, a.sha, a.file)); });
   cmd('gitKitchen.file.compareWorking', async (n: Node) => { const a = fileArg(n); await compareCommitWorking({ root: a.root, sha: a.sha, file: a.file }); });
   cmd('gitKitchen.file.openOnRemote', async (n: Node) => { const a = fileArg(n); await vscode.env.openExternal(vscode.Uri.parse(`${await webUrl(a.root)}/blob/${a.sha}/${a.file}`)); });
+  // Source Control changes (uncommitted files): the built-in menu passes the clicked resource, then all selected ones.
+  const changeUris = (first: any, all?: any[]): vscode.Uri[] => (Array.isArray(all) && all.length ? all : [first]).map(r => r?.resourceUri).filter((u): u is vscode.Uri => !!u && u.scheme === 'file');
+  cmd('gitKitchen.change.copyPath', async (first: any, all?: any[]) => { const us = changeUris(first, all); if (us.length) await vscode.env.clipboard.writeText(us.map(u => u.fsPath).join('\n')); });
+  cmd('gitKitchen.change.copyRelativePath', async (first: any, all?: any[]) => {
+    const us = changeUris(first, all); if (!us.length) return;
+    const lines: string[] = [];
+    for (const u of us) { const r = await repoRoot(path.dirname(u.fsPath)); lines.push(r ? rel(r, u.fsPath) : u.fsPath); }
+    await vscode.env.clipboard.writeText(lines.join('\n'));
+  });
   cmd('gitKitchen.file.copyRelativePath', async (n: Node) => { await vscode.env.clipboard.writeText(fileArg(n).file); });
   cmd('gitKitchen.file.copyPatch', async (n: Node) => { const a = fileArg(n); await vscode.env.clipboard.writeText(await git(a.root, 'show', '--format=', a.sha, '--', a.file)); vscode.window.setStatusBarMessage('Copied file patch', 2000); });
   cmd('gitKitchen.file.restore', async (n: Node) => { const a = fileArg(n); if (!await confirm(`Restore ${a.file} to its state at ${a.sha.slice(0, 7)}? The working copy is overwritten.`, 'Restore')) return;
