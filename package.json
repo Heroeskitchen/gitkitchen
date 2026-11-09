@@ -1044,6 +1044,16 @@
         "command": "gitKitchen.patchTransfer.disableLink",
         "title": "Disable Transfer Link…",
         "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.change.copyPath",
+        "title": "Copy Path",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.change.copyRelativePath",
+        "title": "Copy Relative Path",
+        "category": "Git Kitchen"
       }
     ],
     "menus": {
@@ -2764,6 +2774,26 @@
         {
           "command": "gitKitchen.scripts.open",
           "when": "false"
+        },
+        {
+          "command": "gitKitchen.change.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "gitKitchen.change.copyRelativePath",
+          "when": "false"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "gitKitchen.change.copyPath",
+          "when": "scmProvider == git",
+          "group": "7_copy@1"
+        },
+        {
+          "command": "gitKitchen.change.copyRelativePath",
+          "when": "scmProvider == git",
+          "group": "7_copy@2"
         }
       ]
     },
