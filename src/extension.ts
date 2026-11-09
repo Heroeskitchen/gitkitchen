@@ -841,10 +841,12 @@ function commitArg(n: any): { root: string; sha: string; file?: string } { retur
  * (with `alt` for the Alt variant), then register its handler here.
  */
 function registerCommitActions() {
-  cmd('gitKitchen.commit.undo', async (n: Node) => {
-    const { root: r, sha } = commitArg(n); const head = (await git(r, 'rev-parse', 'HEAD')).trim();
+  cmd('gitKitchen.commit.undo', async (n?: Node) => {
+    const r = n ? commitArg(n).root : await root(); const head = (await git(r, 'rev-parse', 'HEAD')).trim(); const sha = n ? commitArg(n).sha : head;
     if (head !== sha) { vscode.window.showInformationMessage('Only the latest commit can be undone.'); return; }
     if (!await git(r, 'rev-parse', '--verify', '-q', 'HEAD~1').catch(() => '')) { vscode.window.showInformationMessage('This is the first commit; there is nothing to undo to.'); return; }
+    const unpushed = (await git(r, 'rev-list', '--count', '@{u}..HEAD').catch(() => '')).trim(); // empty: no upstream
+    if (unpushed === '0' && !await confirm(`${sha.slice(0, 7)} is already pushed. Undoing it locally means the next push needs a force push. Undo anyway?`, 'Undo Commit')) return;
     await git(r, 'reset', '--soft', 'HEAD~1'); refreshAll(); vscode.window.setStatusBarMessage(`Undid ${sha.slice(0, 7)}; its changes are staged`, 4000);
   });
   cmd('gitKitchen.commit.copyRemoteUrl', async (n: Node) => { const a = commitArg(n); const url = `${await webUrl(a.root)}/commit/${a.sha}`;

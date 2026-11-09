@@ -1049,6 +1049,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "gitKitchen.commit.undo",
+          "when": "view == gitKitchen.commits",
+          "group": "1_commit@1"
+        },
+        {
           "command": "gitKitchen.refresh",
           "when": "view == gitKitchen.commits",
           "group": "navigation@5"
@@ -1664,6 +1669,11 @@
           "command": "gitKitchen.commit.undo",
           "when": "view == gitKitchen.commits && viewItem == commit.head",
           "group": "inline@1"
+        },
+        {
+          "command": "gitKitchen.commit.undo",
+          "when": "view == gitKitchen.commits && viewItem == commit.head",
+          "group": "1@7"
         },
         {
           "command": "gitKitchen.commit.openAllChanges",
