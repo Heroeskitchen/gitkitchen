@@ -574,7 +574,8 @@
       {
         "command": "gitKitchen.operation.abort",
         "title": "Abort…",
-        "category": "Git Kitchen"
+        "category": "Git Kitchen",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "gitKitchen.explorer.reopenHere",
@@ -1659,6 +1660,11 @@
           "command": "gitKitchen.operation.skip",
           "when": "view == gitKitchen.commits && viewItem == operation.rebase",
           "group": "inline@2"
+        },
+        {
+          "command": "gitKitchen.operation.abort",
+          "when": "view == gitKitchen.commits && viewItem =~ /^operation/",
+          "group": "inline@3"
         },
         {
           "command": "gitKitchen.operation.continue",
