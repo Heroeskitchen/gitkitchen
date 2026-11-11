@@ -232,9 +232,9 @@ async function operationNode(r: string): Promise<Node | undefined> {
   if (!op) return;
   const conflicts = P.parseNameList(await git(r, 'diff', '--name-only', '--diff-filter=U').catch(() => ''));
   const x = new Node(op.label, `operation.${op.kind}`, { root: r, op, conflicts }, conflicts.length ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
-  x.description = conflicts.length ? `${conflicts.length} ${conflicts.length === 1 ? 'conflict' : 'conflicts'} remaining` : 'no conflicts, ready to continue';
+  const st = P.operationStatus(op, conflicts.length); x.description = st.description;
   x.tooltip = `${op.label} in progress.\nContinue${op.canSkip ? ', Skip' : ''} or Abort from the row actions or its context menu.`;
-  x.iconPath = conflicts.length ? icon('warning', 'list.warningForeground') : icon(op.kind === 'merge' ? 'git-merge' : 'git-commit');
+  x.iconPath = icon(st.icon, st.color);
   x.id = 'operation'; return x;
 }
 async function runOperation(action: 'continue' | 'skip' | 'abort') {

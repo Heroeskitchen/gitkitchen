@@ -390,6 +390,12 @@ export function detectOperation(read: (rel: string) => string | undefined): Oper
   return undefined;
 }
 
+/** Row look for an in-progress operation: conflicts show a warning in the conflict colour, a clean state shows green for "ready to continue". */
+export function operationStatus(op: OperationState, conflicts: number): { icon: string; color: string; description: string } {
+  if (conflicts) return { icon: 'warning', color: 'gitDecoration.conflictingResourceForeground', description: `${conflicts} ${conflicts === 1 ? 'conflict' : 'conflicts'} remaining` };
+  return { icon: op.kind === 'merge' ? 'git-merge' : 'git-commit', color: 'gitDecoration.addedResourceForeground', description: 'no conflicts, ready to continue' };
+}
+
 /**
  * Choose which two remotes to compare. A saved pair wins when both remotes still exist. With exactly two remotes the
  * base is origin if present, otherwise the current branch's upstream remote, otherwise the first alphabetically.

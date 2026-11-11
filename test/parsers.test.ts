@@ -239,6 +239,12 @@ describe('0.3.0 helpers', () => {
     expect(p.freshness(0, at(5), now, { agingDays: 3, staleDays: 4, behindCount: 0 }).state).toBe('stale');
   });
   const fsOf = (files: Record<string, string>) => (f: string) => files[f];
+  it('colours the operation row by conflict state', () => {
+    const op = p.detectOperation(f => f === 'CHERRY_PICK_HEAD' ? '0739c93abc' : undefined)!;
+    expect(p.operationStatus(op, 2)).toEqual({ icon: 'warning', color: 'gitDecoration.conflictingResourceForeground', description: '2 conflicts remaining' });
+    expect(p.operationStatus(op, 1).description).toBe('1 conflict remaining');
+    expect(p.operationStatus(op, 0)).toEqual({ icon: 'git-commit', color: 'gitDecoration.addedResourceForeground', description: 'no conflicts, ready to continue' });
+  });
   it('detects operations from git dir state', () => {
     expect(p.detectOperation(fsOf({}))).toBeUndefined();
     expect(p.detectOperation(fsOf({ MERGE_HEAD: 'abc' }))).toMatchObject({ kind: 'merge', canSkip: false });
