@@ -560,17 +560,6 @@
         "icon": "$(checklist)"
       },
       {
-        "command": "gitKitchen.reloadWindow",
-        "title": "Reload Window",
-        "category": "Git Kitchen",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "gitKitchen.pullMainAndReload",
-        "title": "Pull Main and Reload Window",
-        "category": "Git Kitchen"
-      },
-      {
         "command": "gitKitchen.operation.continue",
         "title": "Continue",
         "category": "Git Kitchen",
@@ -1219,16 +1208,6 @@
           "command": "gitKitchen.commits.showAvatars",
           "when": "view == gitKitchen.commits && !config.gitKitchen.avatars",
           "group": "3_show@1"
-        },
-        {
-          "command": "gitKitchen.pullMainAndReload",
-          "when": "view == gitKitchen.commits",
-          "group": "5_reload@1"
-        },
-        {
-          "command": "gitKitchen.reloadWindow",
-          "when": "view == gitKitchen.commits",
-          "group": "5_reload@2"
         },
         {
           "command": "gitKitchen.commits.hideMerges",

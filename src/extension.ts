@@ -1421,18 +1421,6 @@ export async function activate(c: vscode.ExtensionContext) {
   registerNav(); registerAnnotations(); registerLens();
   c.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('gitKitchen')) { refreshAll(); scheduleBlame(); lensEmitter.fire(); } }));
   cmd('gitKitchen.refresh', async () => { prCache = undefined; branchPrCache = undefined; refreshAll(); updateRemoteContext(); });
-  cmd('gitKitchen.reloadWindow', () => vscode.commands.executeCommand('workbench.action.reloadWindow'));
-  cmd('gitKitchen.pullMainAndReload', async () => {
-    const r = await root(); const main = vscode.workspace.getConfiguration('gitKitchen').get<string>('mainBranch', 'main');
-    try {
-      await withProgress(`Pulling ${main}`, async () => {
-        // Fast-forward only: never merges, never rewrites history. On the main branch pull it; otherwise move the local main ref.
-        if ((await git(r, 'branch', '--show-current')).trim() === main) await git(r, 'pull', '--ff-only', 'origin', main);
-        else await git(r, 'fetch', 'origin', `${main}:${main}`);
-      });
-    } catch (e: any) { vscode.window.showErrorMessage(`Could not fast-forward ${main}: ${e?.message ?? e}. The window was not reloaded.`); return; }
-    await vscode.commands.executeCommand('workbench.action.reloadWindow');
-  });
   cmd('gitKitchen.operation.continue', () => runOperation('continue'));
   cmd('gitKitchen.operation.skip', () => runOperation('skip'));
   cmd('gitKitchen.operation.abort', () => runOperation('abort'));
