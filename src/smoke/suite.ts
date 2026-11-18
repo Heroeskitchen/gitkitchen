@@ -9,8 +9,13 @@ export async function run() {
   };
   const ext = vscode.extensions.all.find(e => e.packageJSON.name === 'gitkitchen')!;
   await ext.activate();
-  const api = ext.exports ?? require(path.join(ext.extensionPath, 'out', 'extension.js'));
-  const t = require(path.join(ext.extensionPath, 'out', 'extension.js'))._test;
+  // Use the module instance the editor activated. On Windows the drive letter case can differ (e: vs E:),
+  // and a plain require would load a second, never-activated copy of the extension.
+  const mainJs = path.join(ext.extensionPath, 'out', 'extension.js');
+  const loaded = Object.keys(require.cache).find(k => k.toLowerCase() === mainJs.toLowerCase());
+  const mod = loaded ? require.cache[loaded]!.exports : require(mainJs);
+  const api = ext.exports ?? mod;
+  const t = mod._test;
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
 
   await check('all views live in the Source Control container, except Scripts in its own', async () => {
