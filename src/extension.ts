@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { git, gh, repoRoot } from './git';
+import * as os from 'os';
+import { git, gh, repoRoot, run, setGhProgram, ghProgramPath } from './git';
+import * as G from './ghsetup';
 import * as P from './parsers';
 import * as S from './scripts';
 import { applyTransfer, formatEvidence } from './transfer/apply';
@@ -25,7 +27,13 @@ async function root(): Promise<string> { const r = await currentRoot(); if (!r) 
 async function confirm(msg: string, action: string): Promise<boolean> { return (await vscode.window.showWarningMessage(msg, { modal: true }, action)) === action; }
 function cmd(id: string, fn: (...a: any[]) => any) {
   ctx.subscriptions.push(vscode.commands.registerCommand(id, async (...a: any[]) => {
-    try { await fn(...a); } catch (e: any) { out.appendLine(String(e?.message ?? e)); vscode.window.showErrorMessage(String(e?.message ?? e)); }
+    try { await fn(...a); } catch (e: any) {
+      out.appendLine(String(e?.message ?? e));
+      const friendly = G.friendlyGhError(e);
+      if (!friendly) { vscode.window.showErrorMessage(String(e?.message ?? e)); return; }
+      void setGhState(G.classifyGhError(e)!);
+      if (await vscode.window.showErrorMessage(friendly.replace(/ Run ".*$/, ''), SETUP_GH) === SETUP_GH) vscode.commands.executeCommand('gitKitchen.gh.setup');
+    }
   }));
 }
 async function withProgress<T>(title: string, fn: () => Promise<T>): Promise<T> {
@@ -106,7 +114,7 @@ class Tree implements vscode.TreeDataProvider<Node> {
   refresh() { this.ev.fire(undefined); }
   getTreeItem(n: Node) { return n; }
   async getChildren(n?: Node) {
-    try { const shared = n && await sharedChildren(n); return shared ?? await this.load(n); } catch (e: any) { const x = new Node(String(e?.message ?? e).split('\n')[0], 'error'); x.iconPath = icon('warning', 'list.errorForeground'); return [x]; }
+    try { const shared = n && await sharedChildren(n); return shared ?? await this.load(n); } catch (e: any) { const x = new Node(G.friendlyGhError(e) ?? String(e?.message ?? e).split('\n')[0], 'error'); x.iconPath = icon('warning', 'list.errorForeground'); return [x]; }
   }
   async resolveTreeItem(item: vscode.TreeItem, n: Node) { if (this.resolve) await this.resolve(n); else await resolveCommitTooltip(n); return n; }
 }
@@ -1093,12 +1101,77 @@ function registerWorktrees() {
     if (!dry) { vscode.window.showInformationMessage('Nothing to prune.'); return; } if (!await confirm(`Prune stale worktree entries?\n\n${dry}`, 'Prune')) return; await git(r, 'worktree', 'prune'); refreshAll(); });
 }
 
+// ---------- GitHub CLI setup ----------
+const SETUP_GH = 'Set Up GitHub CLI';
+let ghState: G.GhState | undefined;
+async function setGhState(s: G.GhState) {
+  if (s === ghState) return;
+  const was = ghState; ghState = s;
+  await vscode.commands.executeCommand('setContext', 'gitKitchen.ghState', s);
+  if (s === 'ready' && was && was !== 'ready') { prCache = undefined; branchPrCache = undefined; refreshAll(); }
+}
+/** Find gh on PATH or in a usual install folder (so a fresh install works without restarting the editor), then check it is signed in. */
+async function detectGh(r?: string): Promise<G.GhState> {
+  const cwd = r ?? os.homedir();
+  const works = async (p: string) => run(p, ['--version'], cwd).then(() => true, () => false);
+  let found = await works(ghProgramPath()) ? ghProgramPath() : undefined;
+  if (!found) for (const p of ['gh', ...G.ghCandidates(process.platform, process.env, os.homedir())]) if ((p === 'gh' || fs.existsSync(p)) && await works(p)) { found = p; break; }
+  if (!found) return 'missing';
+  setGhProgram(found);
+  try { await run(found, ['auth', 'status', '--hostname', 'github.com'], cwd); return 'ready'; }
+  catch (e) { return G.isGhMissing(e) ? 'missing' : G.isGhSignedOut(e) ? 'signedOut' : 'ready'; } // other failures (offline) surface from the real call
+}
+async function findBrew(): Promise<string | undefined> {
+  const p = G.BREW_CANDIDATES.find(x => fs.existsSync(x)); if (p) return p;
+  return run('brew', ['--version'], os.homedir()).then(() => 'brew', () => undefined);
+}
+let ghWatch: NodeJS.Timeout | undefined;
+/** After setup starts, re-check every few seconds until gh is ready, so the panel fills in by itself. */
+function watchGh() {
+  if (ghWatch) clearInterval(ghWatch);
+  const until = Date.now() + 15 * 60_000; let busy = false;
+  ghWatch = setInterval(async () => {
+    if (busy) return; busy = true;
+    try {
+      const s = await detectGh(await currentRoot());
+      if (s === 'ready' || Date.now() > until) { clearInterval(ghWatch); ghWatch = undefined; }
+      if (s === 'ready' && ghState !== 'ready') { await setGhState(s); vscode.window.showInformationMessage('GitHub CLI is set up. Pull requests will load now.'); }
+    } finally { busy = false; }
+  }, 3000);
+}
+function registerGhSetup() {
+  cmd('gitKitchen.gh.recheck', async () => {
+    const s = await detectGh(await currentRoot()); await setGhState(s);
+    prCache = undefined; branchPrCache = undefined; refreshAll();
+    if (s === 'ready') vscode.window.setStatusBarMessage('GitHub CLI is ready', 3000);
+    else if (await vscode.window.showInformationMessage(s === 'missing' ? 'The GitHub CLI is still not found.' : 'The GitHub CLI is installed but not signed in to GitHub.', SETUP_GH) === SETUP_GH) vscode.commands.executeCommand('gitKitchen.gh.setup');
+  });
+  cmd('gitKitchen.gh.setup', async () => {
+    const s = await detectGh(await currentRoot()); await setGhState(s);
+    if (s === 'ready') { vscode.window.showInformationMessage('The GitHub CLI is already installed and signed in.'); refreshAll(); return; }
+    const plan = G.setupPlan({ platform: process.platform, state: s, gh: ghProgramPath(), brew: process.platform === 'darwin' ? await findBrew() : undefined });
+    if (!plan) return;
+    if (plan.kind === 'docs') {
+      await vscode.env.openExternal(vscode.Uri.parse(plan.url)); watchGh();
+      if (await vscode.window.showInformationMessage(plan.summary, 'Check Again') === 'Check Again') vscode.commands.executeCommand('gitKitchen.gh.recheck');
+      return;
+    }
+    const t = vscode.window.createTerminal({ name: 'GitHub CLI setup', shellPath: plan.shell });
+    t.show(); t.sendText(plan.command); watchGh();
+    vscode.window.showInformationMessage(`${plan.summary} in the terminal. Follow the prompts there; Git Kitchen picks it up when it finishes.`);
+  });
+  void detectGh().then(setGhState);
+}
+
 // ---------- Pull requests ----------
 async function loadPrs(n?: Node): Promise<Node[]> {
   const r = await root();
   if (!n) {
+    if (ghState !== 'ready') { await setGhState(await detectGh(r)); if ((ghState as G.GhState | undefined) !== 'ready') return []; }
+    let all: P.PullRequest[];
+    try { all = await listPrs(r, true); } catch (e) { const s = G.classifyGhError(e); if (!s) throw e; await setGhState(s); return []; }
     const cur = (await git(r, 'branch', '--show-current').catch(() => '')).trim();
-    const prs = P.pinSort(await listPrs(r, true), { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
+    const prs = P.pinSort(all, { current: p => p.headRefName === cur, name: p => p.title, time: p => Date.parse(p.updatedAt ?? '') || 0, by: sortBy() });
     return prs.map(p => {
     const x = new Node(p.title, 'pr', { root: r, pr: p }, vscode.TreeItemCollapsibleState.Collapsed);
     x.description = `${P.prStatus(p)} · ${P.prBadge(p)} · ${p.headRefName} → ${p.baseRefName}`; x.tooltip = md(P.prCardMarkdown(p, { avatar: /^[\w-]+$/.test(p.author) ? `https://github.com/${p.author}.png?size=32` : undefined }));
@@ -1414,7 +1487,7 @@ export async function activate(c: vscode.ExtensionContext) {
   view('gitKitchen.todos', new Tree(loadTodos));
   scriptsTree = new Tree(loadScripts, async () => {}); view('gitKitchen.scripts', scriptsTree); registerScripts();
   historyTree = new Tree(loadHistory); historyView = view('gitKitchen.history', historyTree);
-  registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerGaps(); registerStashPickers(); registerPrs(); registerDual(); registerMerged(); registerExplorer(); registerTransfer();
+  registerBranches(); registerRemotes(); registerStashes(); registerBlame(); registerHistory(); registerWorktrees(); registerGaps(); registerStashPickers(); registerPrs(); registerGhSetup(); registerDual(); registerMerged(); registerExplorer(); registerTransfer();
   cmd('gitKitchen.commits.loadMore', async (key = 'commits') => { refLimits.set(key, (refLimits.get(key) ?? 50) + 50); refreshAll(); });
   cmd('gitKitchen.diffFile', async (r: string, l: string | undefined, rt: string | undefined, f: string, old?: string) => {
     await diffFile(r, l, rt, f, old); });

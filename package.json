@@ -38,6 +38,16 @@
   "contributes": {
     "commands": [
       {
+        "command": "gitKitchen.gh.setup",
+        "title": "Set Up GitHub CLI",
+        "category": "Git Kitchen"
+      },
+      {
+        "command": "gitKitchen.gh.recheck",
+        "title": "Check GitHub CLI Again",
+        "category": "Git Kitchen"
+      },
+      {
         "command": "gitKitchen.refresh",
         "title": "Refresh",
         "category": "Git Kitchen",
@@ -2900,6 +2910,18 @@
           "highContrast": null,
           "highContrastLight": null
         }
+      }
+    ],
+    "viewsWelcome": [
+      {
+        "view": "gitKitchen.prs",
+        "contents": "Pull requests need the GitHub CLI, which is not installed yet (or the editor cannot find it).\n[Set Up GitHub CLI](command:gitKitchen.gh.setup)\nThis installs it in a terminal and signs you in to GitHub. No restart needed.\n[Check Again](command:gitKitchen.gh.recheck)",
+        "when": "gitKitchen.ghState == missing"
+      },
+      {
+        "view": "gitKitchen.prs",
+        "contents": "The GitHub CLI is installed but not signed in to GitHub.\n[Sign In to GitHub](command:gitKitchen.gh.setup)\n[Check Again](command:gitKitchen.gh.recheck)",
+        "when": "gitKitchen.ghState == signedOut"
       }
     ],
     "viewsContainers": {

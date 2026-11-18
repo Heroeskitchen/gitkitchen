@@ -84,8 +84,7 @@ Check and apply run only from the palette or a menu. An invoke that carries argu
 
 ## Requirements
 - [git](https://git-scm.com/) on your `PATH`.
-- [GitHub CLI](https://cli.github.com/) (`gh`), signed in with `gh auth login`, for the Pull Requests view
-  and pull request badges. Everything else works without it.
+- [GitHub CLI](https://cli.github.com/) (`gh`) for the Pull Requests view and pull request badges; everything else works without it. If it is missing or signed out, the view shows a **Set Up GitHub CLI** button that installs it in a terminal (winget on Windows, Homebrew on macOS) and runs `gh auth login`. Git Kitchen also finds a fresh install in its usual folder, so no restart is needed.
 
 ## Install
 
