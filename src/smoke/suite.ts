@@ -9,8 +9,13 @@ export async function run() {
   };
   const ext = vscode.extensions.all.find(e => e.packageJSON.name === 'gitkitchen')!;
   await ext.activate();
-  const api = ext.exports ?? require(path.join(ext.extensionPath, 'out', 'extension.js'));
-  const t = require(path.join(ext.extensionPath, 'out', 'extension.js'))._test;
+  // Use the module instance the editor activated. On Windows the drive letter case can differ (e: vs E:),
+  // and a plain require would load a second, never-activated copy of the extension.
+  const mainJs = path.join(ext.extensionPath, 'out', 'extension.js');
+  const loaded = Object.keys(require.cache).find(k => k.toLowerCase() === mainJs.toLowerCase());
+  const mod = loaded ? require.cache[loaded]!.exports : require(mainJs);
+  const api = ext.exports ?? mod;
+  const t = mod._test;
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
 
   await check('all views live in the Source Control container, except Scripts in its own', async () => {
@@ -350,6 +355,100 @@ export async function run() {
       sh(root, 'reset', '-q', '--hard', 'HEAD~2'); sh(root, 'branch', '--unset-upstream'); sh(root, 'remote', 'remove', 'syncr');
     }
   });
+  {
+    // GitHub CLI setup and Create PR, against a fake gh so no network or account is needed.
+    const fs = require('fs'); const os = require('os'); const cp = require('child_process');
+    const sh = (cwd: string, ...a: string[]) => cp.execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.com', ...a], { cwd }).toString();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-fakegh-')); let fake = path.join(dir, 'gh');
+    const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const shotDir = process.env.GK_GH_SHOTS; if (shotDir) fs.mkdirSync(shotDir, { recursive: true });
+    /** Screenshot of the screen when GK_GH_SHOTS names a folder (PowerShell on Windows, ffmpeg on Linux). */
+    const shot = async (name: string) => {
+      if (!shotDir) return; await wait(1500); const file = path.join(shotDir, `${name}.png`);
+      if (process.platform === 'win32') {
+        const ps = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; Add-Type -Name D -Namespace W -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'; [W.D]::SetProcessDPIAware() | Out-Null; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height; $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $bmp.Save('${file.replace(/'/g, "''")}')`;
+        cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps]);
+      } else cp.execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'x11grab', '-video_size', '1600x1400', '-i', process.env.DISPLAY!, '-frames:v', '1', file]);
+      console.log('SHOT ' + file);
+    };
+    const showPrs = async () => { for (const c of ['workbench.view.scm', 'gitKitchen.prs.focus', 'gitKitchen.refresh']) { try { await vscode.commands.executeCommand(c); } catch { /* ignore */ } } await wait(1500); };
+    if (process.platform === 'win32') {
+      // A shell script cannot be started directly on Windows, so build the fake as a tiny exe with the .NET Framework compiler that ships with Windows.
+      const csc = path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+      fs.writeFileSync(path.join(dir, 'gh.cs'), `using System; using System.IO;
+class P { static int Main(string[] a) {
+  var d = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location); var k = a.Length > 1 ? a[0] + " " + a[1] : (a.Length > 0 ? a[0] : "");
+  if (a.Length > 0 && a[0] == "--version") { Console.WriteLine("gh version 2.60.0 (fake)"); return 0; }
+  if (k == "auth status") { if (File.Exists(Path.Combine(d, "signed-in"))) { Console.WriteLine("Logged in to github.com"); return 0; } Console.Error.WriteLine("You are not logged into any GitHub hosts. To log in, run: gh auth login"); return 1; }
+  if (k == "auth login") { System.Threading.Thread.Sleep(1000); File.WriteAllText(Path.Combine(d, "signed-in"), ""); Console.WriteLine("Logged in as smoke"); return 0; }
+  if (k == "pr list") { Console.Write(File.ReadAllText(Path.Combine(d, "prs.json"))); return 0; }
+  if (k == "pr create") { File.AppendAllText(Path.Combine(d, "created.log"), string.Join(" ", a) + "\\n"); Console.WriteLine("https://github.com/o/r/pull/99"); return 0; }
+  Console.WriteLine("[]"); return 0; } }
+`);
+      fake = path.join(dir, 'gh.exe'); cp.execFileSync(csc, ['/nologo', `/out:${fake}`, path.join(dir, 'gh.cs')]);
+    } else fs.writeFileSync(fake, [
+      '#!/bin/sh', 'd=$(dirname "$0")', 'case "$1 $2" in',
+      '  "--version "*) echo "gh version 2.60.0 (fake)"; exit 0;;',
+      '  "auth status") if [ -f "$d/signed-in" ]; then echo "Logged in to github.com"; exit 0; fi; echo "You are not logged into any GitHub hosts. To log in, run: gh auth login" >&2; exit 1;;',
+      '  "auth login") sleep 1; touch "$d/signed-in"; echo "Logged in as smoke"; exit 0;;',
+      '  "pr list") cat "$d/prs.json"; exit 0;;',
+      '  "pr create") echo "$@" >> "$d/created.log"; echo "https://github.com/o/r/pull/99"; exit 0;;',
+      'esac', 'echo "[]"', ''].join('\n'), { mode: 0o755 });
+    const cur = sh(root, 'branch', '--show-current').trim();
+    fs.writeFileSync(path.join(dir, 'prs.json'), JSON.stringify([{ number: 12, state: 'OPEN', title: 'Work on the current branch', headRefName: cur, baseRefName: 'main', url: 'https://github.com/o/r/pull/12', isDraft: false, reviewDecision: '', author: { login: 'smoke' }, statusCheckRollup: [], mergeable: 'MERGEABLE', updatedAt: new Date().toISOString() }]));
+    const win = vscode.window as any; const keep = { qp: win.showQuickPick, info: win.showInformationMessage, err: win.showErrorMessage, input: win.showInputBox };
+    try {
+      await check('gh missing: Pull Requests is empty and shows the setup welcome, errors are plain', async () => {
+        t.gh.setCandidates([]); t.gh.setProgram(path.join(dir, 'missing', 'gh')); t.gh.reset();
+        assert.deepStrictEqual(await t.loadPrs(), []); assert.strictEqual(t.gh.state(), 'missing');
+        const w = ext.packageJSON.contributes.viewsWelcome.find((x: any) => x.view === 'gitKitchen.prs' && /missing/.test(x.when));
+        assert.match(w.contents, /\[Set Up GitHub CLI\]\(command:gitKitchen\.gh\.setup\)/);
+        await showPrs(); await shot('1-gh-missing-welcome');
+        let shown = ''; win.showErrorMessage = async (m: string, ...b: any[]) => { shown = m; if (shotDir) keep.err(m, ...b); return undefined; };
+        await vscode.commands.executeCommand('gitKitchen.pr.create'); await shot('2-gh-missing-plain-error');
+        try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
+        assert.match(shown, /not installed/); assert.doesNotMatch(shown, /ENOENT/);
+      });
+      await check('gh found in its install folder without PATH; signed out asks to sign in', async () => {
+        t.gh.setCandidates([fake]); t.gh.reset();
+        assert.deepStrictEqual(await t.loadPrs(), []); assert.strictEqual(t.gh.state(), 'signedOut'); assert.strictEqual(t.gh.program(), fake);
+        await showPrs(); await shot('3-gh-signed-out-welcome');
+      });
+      await check('Set Up GitHub CLI signs in in a terminal and the panel fills in by itself', async () => {
+        win.showInformationMessage = async (m: string, ...b: any[]) => { if (shotDir) keep.info(m, ...b); return undefined; };
+        await vscode.commands.executeCommand('gitKitchen.gh.setup'); await shot('4-setup-terminal');
+        assert.ok(vscode.window.terminals.some(x => x.name === 'GitHub CLI setup'));
+        for (let i = 0; i < 40 && t.gh.state() !== 'ready'; i++) await wait(500);
+        assert.strictEqual(t.gh.state(), 'ready');
+        const prs = await t.loadPrs(); assert.strictEqual(prs.length, 1); assert.strictEqual(prs[0].label, 'Work on the current branch');
+        await showPrs(); await shot('5-gh-ready-panel-filled');
+        try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
+        vscode.window.terminals.filter(x => x.name === 'GitHub CLI setup').forEach(x => x.dispose());
+      });
+      await check('Create PR picks the branch; an open PR on the current branch does not block another', async () => {
+        const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-pr-origin-')); sh(bare, 'init', '-q', '--bare');
+        const hadOrigin = sh(root, 'remote').split('\n').includes('origin'); if (!hadOrigin) sh(root, 'remote', 'add', 'origin', bare);
+        sh(root, 'branch', 'feature/pr-picker'); sh(root, 'push', '-q', 'origin', `${cur}:refs/heads/main`, 'feature/pr-picker'); sh(root, 'fetch', '-q', 'origin');
+        const asked: any[][] = [];
+        win.showQuickPick = async (items: any[], o: any) => {
+          asked.push(items);
+          if (shotDir && asked.length <= 2) { const p = keep.qp(items, o); await shot(asked.length === 1 ? '6-create-pr-branch-picker' : '7-create-pr-base-picker'); await vscode.commands.executeCommand('workbench.action.closeQuickOpen'); await p; }
+          return /from branch/.test(o?.title) ? items.find((x: any) => x.label === 'feature/pr-picker') : items[0];
+        };
+        win.showInputBox = async (o: any) => o?.value ?? 'x';
+        try {
+          await vscode.commands.executeCommand('gitKitchen.pr.create');
+          const heads = asked[0].map((x: any) => x.label); assert.strictEqual(heads[0], cur); assert.match(asked[0][0].description, /current · PR #12 already open/);
+          assert.strictEqual(asked[1][0].label, 'main');
+          assert.match(fs.readFileSync(path.join(dir, 'created.log'), 'utf8'), /--head feature\/pr-picker --base main/);
+        } finally { if (!hadOrigin) sh(root, 'remote', 'remove', 'origin'); sh(root, 'branch', '-D', 'feature/pr-picker'); }
+      });
+    } finally {
+      Object.assign(win, { showQuickPick: keep.qp, showInformationMessage: keep.info, showErrorMessage: keep.err, showInputBox: keep.input });
+      vscode.window.terminals.filter(x => x.name === 'GitHub CLI setup').forEach(x => x.dispose());
+      t.gh.setCandidates(undefined); t.gh.setProgram('gh'); t.gh.reset();
+    }
+  }
   if (process.env.GK_SHOTS) await screenshots(t, root);
   console.log('\n===== GIT KITCHEN SMOKE =====\n' + results.join('\n') + '\n========================');
   if (results.some(r => r.startsWith('FAIL'))) throw new Error('smoke failures');

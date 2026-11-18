@@ -650,3 +650,20 @@ describe('splitUnstaged', () => {
     expect(p.splitUnstaged(all, { added: [], modified: [], deletedAfter: [] }).staged).toEqual(all);
   });
 });
+
+describe('create PR pickers', () => {
+  const b = (name: string, time: number, current = false) => ({ name, current, ahead: 0, behind: 0, gone: false, sha: '', subject: '', time });
+  it('puts the current branch first and branches with an open PR last', () => {
+    const r = p.prHeadChoices([b('old', 1), b('cur', 5, true), b('new', 9), b('busy', 10)], [{ number: 7, headRefName: 'busy' }]);
+    expect(r.map(x => x.name)).toEqual(['cur', 'new', 'old', 'busy']);
+    expect(r[3].openPr).toBe(7);
+  });
+  it('keeps the current branch first even when it already has an open PR', () => {
+    const r = p.prHeadChoices([b('busy', 9), b('cur', 5, true), b('feature', 1)], [{ number: 3, headRefName: 'cur' }, { number: 4, headRefName: 'busy' }]);
+    expect(r.map(x => x.name)).toEqual(['cur', 'feature', 'busy']);
+    expect(r[0].openPr).toBe(3);
+  });
+  it('lists bases with main first and without the head', () => {
+    expect(p.prBaseChoices(['origin/HEAD', 'origin/dev', 'origin/main', 'origin/feat', 'up/main'], 'origin', 'feat', 'main')).toEqual(['main', 'dev']);
+  });
+});
