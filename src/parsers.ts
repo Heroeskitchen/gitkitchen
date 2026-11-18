@@ -802,3 +802,17 @@ export function remoteCheckoutArgs(full: string): { fetch: string[]; switch: str
   if (i <= 0 || i === full.length - 1) throw new Error(`Not a remote branch: ${full}`);
   return { fetch: ['fetch', full.slice(0, i), full.slice(i + 1)], switch: ['switch', '--track', full] };
 }
+
+/** Branches offered when creating a PR: the current branch first if it has no open PR, then others by recent commit; branches that already have an open PR go last and are marked. */
+export function prHeadChoices(branches: Branch[], open: { number: number; headRefName: string }[]): { name: string; current: boolean; openPr?: number }[] {
+  const pr = new Map(open.map(p => [p.headRefName, p.number] as const));
+  const rows = branches.map(b => ({ name: b.name, current: b.current, openPr: pr.get(b.name), time: b.time }));
+  const rank = (x: typeof rows[number]) => (x.openPr !== undefined ? 2 : x.current ? 0 : 1);
+  return rows.sort((a, b) => rank(a) - rank(b) || b.time - a.time).map(({ time: _t, ...x }) => x);
+}
+/** Base branches offered for a PR: the configured main branch first, then the rest of the remote's branches, never the head itself. */
+export function prBaseChoices(remoteBranches: string[], remote: string, head: string, main: string): string[] {
+  const names = remoteBranches.filter(x => x.startsWith(`${remote}/`) && !x.endsWith('/HEAD')).map(x => x.slice(remote.length + 1)).filter(x => x && x !== head);
+  const uniq = [...new Set(names)];
+  return [main, ...uniq.filter(x => x !== main)].filter(x => x !== head);
+}

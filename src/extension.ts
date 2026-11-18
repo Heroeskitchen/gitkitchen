@@ -1216,8 +1216,24 @@ function registerPrs() {
     await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
     const base = (await git(r, 'merge-base', `origin/${p.baseRefName}`, head)).trim(); await compareRefs(r, base, head, `#${p.number}`); });
   cmd('gitKitchen.pr.create', async (n?: Node) => {
-    const r = await root(); const branch = n ? bn(n) : (await git(r, 'branch', '--show-current')).trim();
-    const base = await vscode.window.showInputBox({ prompt: 'Base branch', value: vscode.workspace.getConfiguration('gitKitchen').get('mainBranch', 'main') }); if (!base) return;
+    const r = await root();
+    const open = await listPrs(r, true);
+    let branch = n ? bn(n) : undefined;
+    if (!branch) {
+      // Pick the branch to open the PR from, so an open PR on the current branch never blocks a PR for another one.
+      const heads = P.prHeadChoices(P.parseBranches(await git(r, 'for-each-ref', '--sort=-committerdate', `--format=${P.BRANCH_FORMAT}`, 'refs/heads')), open);
+      const pick = await vscode.window.showQuickPick(heads.map(h => ({ label: h.name, description: [h.current ? 'current' : '', h.openPr !== undefined ? `PR #${h.openPr} already open` : ''].filter(Boolean).join(' · ') })),
+        { title: 'Create PR: from branch', placeHolder: 'Branch to open the pull request from' });
+      if (!pick) return; branch = pick.label;
+    }
+    const existing = open.find(p => p.headRefName === branch);
+    if (existing) {
+      if (await vscode.window.showInformationMessage(`${branch} already has an open pull request, #${existing.number}.`, 'Open It') === 'Open It') vscode.env.openExternal(vscode.Uri.parse(existing.url));
+      return;
+    }
+    const main = vscode.workspace.getConfiguration('gitKitchen').get('mainBranch', 'main');
+    const bases = P.prBaseChoices(P.parseNameList(await git(r, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin').catch(() => '')), 'origin', branch, main);
+    const base = (await vscode.window.showQuickPick(bases.map(b => ({ label: b })), { title: `Create PR: ${branch} into`, placeHolder: 'Base branch' }))?.label; if (!base) return;
     const subjects = P.parseNameList(await git(r, 'log', '--reverse', '--format=%s', `origin/${base}..${branch}`).catch(() => git(r, 'log', '--reverse', '--format=%s', `${base}..${branch}`)));
     const pre = P.prefillPr(branch, subjects);
     const title = await vscode.window.showInputBox({ prompt: 'PR title', value: pre.title }); if (!title) return;
