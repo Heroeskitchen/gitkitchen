@@ -1104,6 +1104,7 @@ function registerWorktrees() {
 // ---------- GitHub CLI setup ----------
 const SETUP_GH = 'Set Up GitHub CLI';
 let ghState: G.GhState | undefined;
+let ghCandidatesOverride: string[] | undefined; // smoke tests only
 async function setGhState(s: G.GhState) {
   if (s === ghState) return;
   const was = ghState; ghState = s;
@@ -1115,7 +1116,7 @@ async function detectGh(r?: string): Promise<G.GhState> {
   const cwd = r ?? os.homedir();
   const works = async (p: string) => run(p, ['--version'], cwd).then(() => true, () => false);
   let found = await works(ghProgramPath()) ? ghProgramPath() : undefined;
-  if (!found) for (const p of ['gh', ...G.ghCandidates(process.platform, process.env, os.homedir())]) if ((p === 'gh' || fs.existsSync(p)) && await works(p)) { found = p; break; }
+  if (!found) for (const p of (ghCandidatesOverride ?? ['gh', ...G.ghCandidates(process.platform, process.env, os.homedir())])) if ((p === 'gh' || fs.existsSync(p)) && await works(p)) { found = p; break; }
   if (!found) return 'missing';
   setGhProgram(found);
   try { await run(found, ['auth', 'status', '--hostname', 'github.com'], cwd); return 'ready'; }
@@ -1549,7 +1550,7 @@ export function deactivate() {}
 
 // Exposed for the smoke test.
 const views: Record<string, vscode.TreeView<Node>> = {};
-export const _test = { setBranchPrs: (prs: P.BranchPrInfo[]) => { mockBranchPrs = prs; }, branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
+export const _test = { gh: { setCandidates: (c?: string[]) => { ghCandidatesOverride = c; }, setProgram: setGhProgram, program: ghProgramPath, detect: detectGh, state: () => ghState, reset: () => { ghState = undefined; prCache = undefined; } }, loadPrs, setBranchPrs: (prs: P.BranchPrInfo[]) => { mockBranchPrs = prs; }, branchDecorations: activeLabelDecorations, views, commitCard, statusTooltip: () => statusItem.tooltip, resolveCommitTooltip, refCommits, commitFiles, refLimits, operationState, runOperation, updateRemoteContext, loadDual, dualPair, dualDescription: () => dualView?.description, dualTitle: () => dualView?.title, status: () => ({ text: statusItem.text, command: statusItem.command }), changes: () => lastChanges, same: () => lastSame, hoverProvider, updateBlame, compareRefs, loadCommits, lensProvider, getAnnot: () => annot, navTarget, loadBranches, loadRemotes, loadStashes, loadWorktrees, loadTodos, loadMerged, blameFor };
 
 /**
  * Commits view title bar: icon buttons (`navigation@N`) and the "..." menu (other groups) in package.json.
