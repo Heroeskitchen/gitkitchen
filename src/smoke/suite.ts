@@ -438,7 +438,7 @@ class P { static int Main(string[] a) {
         win.showInputBox = async (o: any) => o?.value ?? 'x';
         try {
           await vscode.commands.executeCommand('gitKitchen.pr.create');
-          const heads = asked[0].map((x: any) => x.label); assert.strictEqual(heads[heads.length - 1], cur); assert.match(asked[0][heads.length - 1].description, /PR #12 already open/);
+          const heads = asked[0].map((x: any) => x.label); assert.strictEqual(heads[0], cur); assert.match(asked[0][0].description, /current · PR #12 already open/);
           assert.strictEqual(asked[1][0].label, 'main');
           assert.match(fs.readFileSync(path.join(dir, 'created.log'), 'utf8'), /--head feature\/pr-picker --base main/);
         } finally { if (!hadOrigin) sh(root, 'remote', 'remove', 'origin'); sh(root, 'branch', '-D', 'feature/pr-picker'); }

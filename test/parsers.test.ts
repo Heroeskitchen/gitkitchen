@@ -658,9 +658,10 @@ describe('create PR pickers', () => {
     expect(r.map(x => x.name)).toEqual(['cur', 'new', 'old', 'busy']);
     expect(r[3].openPr).toBe(7);
   });
-  it('drops the current branch to the end when it already has an open PR', () => {
-    const r = p.prHeadChoices([b('cur', 5, true), b('feature', 1)], [{ number: 3, headRefName: 'cur' }]);
-    expect(r.map(x => x.name)).toEqual(['feature', 'cur']);
+  it('keeps the current branch first even when it already has an open PR', () => {
+    const r = p.prHeadChoices([b('busy', 9), b('cur', 5, true), b('feature', 1)], [{ number: 3, headRefName: 'cur' }, { number: 4, headRefName: 'busy' }]);
+    expect(r.map(x => x.name)).toEqual(['cur', 'feature', 'busy']);
+    expect(r[0].openPr).toBe(3);
   });
   it('lists bases with main first and without the head', () => {
     expect(p.prBaseChoices(['origin/HEAD', 'origin/dev', 'origin/main', 'origin/feat', 'up/main'], 'origin', 'feat', 'main')).toEqual(['main', 'dev']);
