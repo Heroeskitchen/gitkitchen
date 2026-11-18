@@ -653,15 +653,21 @@ describe('splitUnstaged', () => {
 
 describe('create PR pickers', () => {
   const b = (name: string, time: number, current = false) => ({ name, current, ahead: 0, behind: 0, gone: false, sha: '', subject: '', time });
-  it('puts the current branch first and branches with an open PR last', () => {
-    const r = p.prHeadChoices([b('old', 1), b('cur', 5, true), b('new', 9), b('busy', 10)], [{ number: 7, headRefName: 'busy' }]);
-    expect(r.map(x => x.name)).toEqual(['cur', 'new', 'old', 'busy']);
-    expect(r[3].openPr).toBe(7);
+  const pr = (number: number, head: string, base: string) => ({ number, headRefName: head, baseRefName: base });
+  it('puts the current branch first, then by recent commit, and never demotes a branch for having an open PR', () => {
+    const r = p.prHeadChoices([b('old', 1), b('cur', 5, true), b('new', 9), b('busy', 10)], [pr(7, 'busy', 'main')]);
+    expect(r.map(x => x.name)).toEqual(['cur', 'busy', 'new', 'old']);
+    expect(r[1].open).toEqual([{ number: 7, base: 'main' }]);
   });
-  it('keeps the current branch first even when it already has an open PR', () => {
-    const r = p.prHeadChoices([b('busy', 9), b('cur', 5, true), b('feature', 1)], [{ number: 3, headRefName: 'cur' }, { number: 4, headRefName: 'busy' }]);
-    expect(r.map(x => x.name)).toEqual(['cur', 'feature', 'busy']);
-    expect(r[0].openPr).toBe(3);
+  it('lists every open PR of a branch, one per base', () => {
+    const r = p.prHeadChoices([b('test', 5, true)], [pr(1, 'test', 'main'), pr(2, 'test', 'dev'), pr(3, 'other', 'main')]);
+    expect(r[0].open).toEqual([{ number: 1, base: 'main' }, { number: 2, base: 'dev' }]);
+  });
+  it('finds an open PR only for the same head and base', () => {
+    const open = [pr(1, 'test', 'main')];
+    expect(p.findOpenPr(open, 'test', 'main')?.number).toBe(1);
+    expect(p.findOpenPr(open, 'test', 'dev')).toBeUndefined();
+    expect(p.findOpenPr(open, 'other', 'main')).toBeUndefined();
   });
   it('lists bases with main first and without the head', () => {
     expect(p.prBaseChoices(['origin/HEAD', 'origin/dev', 'origin/main', 'origin/feat', 'up/main'], 'origin', 'feat', 'main')).toEqual(['main', 'dev']);
