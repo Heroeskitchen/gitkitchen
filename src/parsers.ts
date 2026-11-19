@@ -803,12 +803,14 @@ export function remoteCheckoutArgs(full: string): { fetch: string[]; switch: str
   return { fetch: ['fetch', full.slice(0, i), full.slice(i + 1)], switch: ['switch', '--track', full] };
 }
 
-/** Branches offered when creating a PR: the current branch first (so Enter picks it), then others by recent commit; other branches that already have an open PR go last. Open PRs are marked. */
-export function prHeadChoices(branches: Branch[], open: { number: number; headRefName: string }[]): { name: string; current: boolean; openPr?: number }[] {
-  const pr = new Map(open.map(p => [p.headRefName, p.number] as const));
-  const rows = branches.map(b => ({ name: b.name, current: b.current, openPr: pr.get(b.name), time: b.time }));
-  const rank = (x: typeof rows[number]) => (x.current ? 0 : x.openPr !== undefined ? 2 : 1);
-  return rows.sort((a, b) => rank(a) - rank(b) || b.time - a.time).map(({ time: _t, ...x }) => x);
+/** Branches offered when creating a PR: the current branch first (so Enter picks it), then others by recent commit. A branch can have several open PRs (one per base), so none is demoted; each lists its open PRs. */
+export function prHeadChoices(branches: Branch[], open: { number: number; headRefName: string; baseRefName: string }[]): { name: string; current: boolean; open: { number: number; base: string }[] }[] {
+  const rows = branches.map(b => ({ name: b.name, current: b.current, open: open.filter(p => p.headRefName === b.name).map(p => ({ number: p.number, base: p.baseRefName })), time: b.time }));
+  return rows.sort((a, b) => Number(b.current) - Number(a.current) || b.time - a.time).map(({ time: _t, ...x }) => x);
+}
+/** The open PR for exactly this head and base, if any. The same head may have other open PRs into other bases. */
+export function findOpenPr<T extends { headRefName: string; baseRefName: string }>(open: T[], head: string, base: string): T | undefined {
+  return open.find(p => p.headRefName === head && p.baseRefName === base);
 }
 /** Base branches offered for a PR: the configured main branch first, then the rest of the remote's branches, never the head itself. */
 export function prBaseChoices(remoteBranches: string[], remote: string, head: string, main: string): string[] {

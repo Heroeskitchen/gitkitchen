@@ -425,7 +425,7 @@ class P { static int Main(string[] a) {
         try { await vscode.commands.executeCommand('notifications.clearAll'); } catch { /* ignore */ }
         vscode.window.terminals.filter(x => x.name === 'GitHub CLI setup').forEach(x => x.dispose());
       });
-      await check('Create PR picks the branch; an open PR on the current branch does not block another', async () => {
+      await check('Create PR picks the head branch; an open PR on the current branch does not block another, and only the same base is blocked', async () => {
         const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gk-pr-origin-')); sh(bare, 'init', '-q', '--bare');
         const hadOrigin = sh(root, 'remote').split('\n').includes('origin'); if (!hadOrigin) sh(root, 'remote', 'add', 'origin', bare);
         sh(root, 'branch', 'feature/pr-picker'); sh(root, 'push', '-q', 'origin', `${cur}:refs/heads/main`, 'feature/pr-picker'); sh(root, 'fetch', '-q', 'origin');
@@ -433,12 +433,12 @@ class P { static int Main(string[] a) {
         win.showQuickPick = async (items: any[], o: any) => {
           asked.push(items);
           if (shotDir && asked.length <= 2) { const p = keep.qp(items, o); await shot(asked.length === 1 ? '6-create-pr-branch-picker' : '7-create-pr-base-picker'); await vscode.commands.executeCommand('workbench.action.closeQuickOpen'); await p; }
-          return /from branch/.test(o?.title) ? items.find((x: any) => x.label === 'feature/pr-picker') : items[0];
+          return /head branch/.test(o?.title) ? items.find((x: any) => x.label === 'feature/pr-picker') : items[0];
         };
         win.showInputBox = async (o: any) => o?.value ?? 'x';
         try {
           await vscode.commands.executeCommand('gitKitchen.pr.create');
-          const heads = asked[0].map((x: any) => x.label); assert.strictEqual(heads[0], cur); assert.match(asked[0][0].description, /current · PR #12 already open/);
+          const heads = asked[0].map((x: any) => x.label); assert.strictEqual(heads[0], cur); assert.match(asked[0][0].description, /current · PR #12 → main/);
           assert.strictEqual(asked[1][0].label, 'main');
           assert.match(fs.readFileSync(path.join(dir, 'created.log'), 'utf8'), /--head feature\/pr-picker --base main/);
         } finally { if (!hadOrigin) sh(root, 'remote', 'remove', 'origin'); sh(root, 'branch', '-D', 'feature/pr-picker'); }
