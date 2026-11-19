@@ -6,6 +6,7 @@ import { git, gh, repoRoot, run, setGhProgram, ghProgramPath } from './git';
 import * as G from './ghsetup';
 import * as P from './parsers';
 import * as S from './scripts';
+import * as U from './update';
 import { applyTransfer, formatEvidence } from './transfer/apply';
 import { checkTransfer, retrievePackage, CheckResult } from './transfer/check';
 import { resolveActor } from './transfer/identity';
@@ -29,6 +30,10 @@ function cmd(id: string, fn: (...a: any[]) => any) {
   ctx.subscriptions.push(vscode.commands.registerCommand(id, async (...a: any[]) => {
     try { await fn(...a); } catch (e: any) {
       out.appendLine(String(e?.message ?? e));
+      if (e instanceof UpdateError) {
+        if (await vscode.window.showErrorMessage(e.message, 'Open Release Page') === 'Open Release Page') void vscode.env.openExternal(vscode.Uri.parse(U.RELEASES_URL));
+        return;
+      }
       const friendly = G.friendlyGhError(e);
       if (!friendly) { vscode.window.showErrorMessage(String(e?.message ?? e)); return; }
       void setGhState(G.classifyGhError(e)!);
@@ -48,14 +53,17 @@ async function webUrl(r: string, remote = 'origin'): Promise<string> {
 }
 function rel(r: string, file: string) { return path.relative(r, file).split(path.sep).join('/'); }
 
+/** Thrown when no editor command line tool is found, so the update flow can offer a manual install instead of a dead end. */
+/** An update failure with plain text; the person is offered the release page to install by hand. */
+class UpdateError extends Error {}
+class NoEditorCli extends Error { constructor() { super('Could not find the editor command line tool to install the update.'); } }
+
 /** Install a .vsix through the editor's own command line tool (used when the in-editor install is not available, as in Cursor). */
 async function installWithCli(vsix: string): Promise<void> {
   const cp = await import('child_process');
   const win = process.platform === 'win32';
-  const dirs = [path.join(vscode.env.appRoot, 'bin'), path.join(vscode.env.appRoot, '..', '..', 'bin')];
-  const names = ['cursor', 'code', 'code-insiders'].map(n => win ? n + '.cmd' : n);
-  const cli = dirs.flatMap(d => names.map(n => path.join(d, n))).find(f => fs.existsSync(f));
-  if (!cli) throw new Error('Could not find the editor command line tool to install the update.');
+  const cli = U.editorCliCandidates({ platform: process.platform, appRoot: vscode.env.appRoot, execPath: process.execPath, env: process.env }).find(f => fs.existsSync(f));
+  if (!cli) throw new NoEditorCli();
   const done = (res: () => void, rej: (e: Error) => void) => (e: Error | null, _o: string, err: string) => e ? rej(new Error(`Install failed: ${err || e.message}`)) : res();
   await new Promise<void>((res, rej) => win
     ? cp.execFile(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${cli}" --install-extension "${vsix}" --force"`], { windowsVerbatimArguments: true }, done(res, rej))
@@ -453,23 +461,35 @@ function registerBranches() {
   cmd('gitKitchen.updateFromGitHub', async () => {
     const current = String(ctx.extension.packageJSON.version);
     const rel = await withProgress('Git Kitchen: checking for updates', async () => {
-      const res = await fetch('https://api.github.com/repos/Heroeskitchen/gitkitchen/releases/latest', { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'gitkitchen' } });
-      if (!res.ok) throw new Error(`Could not check for updates (GitHub said ${res.status}).`);
+      const res = await fetch('https://api.github.com/repos/Heroeskitchen/gitkitchen/releases/latest', { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'gitkitchen' } }).catch(e => { throw new UpdateError(U.friendlyNetworkError(e, 'check for updates')); });
+      if (!res.ok) throw new UpdateError(`Could not check for updates (GitHub said ${res.status}).`);
       return res.json() as Promise<{ tag_name: string; assets: { name: string; browser_download_url: string }[] }>;
     });
     const latest = rel.tag_name.replace(/^v/, '');
     if (!P.isNewerVersion(latest, current)) { vscode.window.showInformationMessage(`Git Kitchen ${current} is the latest version.`); return; }
     const asset = rel.assets.find(a => a.name.endsWith('.vsix'));
     if (!asset) throw new Error(`Release ${latest} has no .vsix file.`);
+    let installed = true;
     await withProgress(`Git Kitchen: installing ${latest}`, async () => {
-      const res = await fetch(asset.browser_download_url, { headers: { 'User-Agent': 'gitkitchen' } });
-      if (!res.ok) throw new Error(`Download failed (GitHub said ${res.status}).`);
+      const res = await fetch(asset.browser_download_url, { headers: { 'User-Agent': 'gitkitchen' } }).catch(e => { throw new UpdateError(U.friendlyNetworkError(e, 'download the update')); });
+      if (!res.ok) throw new UpdateError(`Download failed (GitHub said ${res.status}).`);
       const file = vscode.Uri.joinPath(ctx.globalStorageUri, asset.name);
       await vscode.workspace.fs.createDirectory(ctx.globalStorageUri);
       await vscode.workspace.fs.writeFile(file, new Uint8Array(await res.arrayBuffer()));
       try { await vscode.commands.executeCommand('workbench.extensions.installExtension', file); }
-      catch { await installWithCli(file.fsPath); }
+      catch {
+        try { await installWithCli(file.fsPath); }
+        catch (e) {
+          if (!(e instanceof NoEditorCli)) throw e;
+          // No command line tool: the file is downloaded, so let the person finish with the editor's own file picker.
+          const pick = await vscode.window.showWarningMessage(`The update ${latest} is downloaded, but the editor's command line tool was not found. Install it from the file instead.`, 'Install from File…', 'Show File');
+          if (pick === 'Install from File…') await vscode.commands.executeCommand('workbench.extensions.action.installVSIX');
+          else if (pick === 'Show File') await vscode.commands.executeCommand('revealFileInOS', file);
+          installed = false;
+        }
+      }
     });
+    if (!installed) return;
     if ((await vscode.window.showInformationMessage(`Git Kitchen ${latest} is installed. Reload to use it.`, 'Reload Window')) === 'Reload Window')
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
   });
