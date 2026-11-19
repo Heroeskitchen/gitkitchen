@@ -771,6 +771,11 @@ export function mergeConfirmText(p: PullRequest): string {
   return lines.join('\n');
 }
 
+/** Text of the close confirm: closing leaves the branch and its commits alone. */
+export function closeConfirmText(p: PullRequest): string {
+  return `Close #${p.number} "${p.title}" without merging?\nThe branch ${p.headRefName} is kept. You can reopen the pull request on GitHub.`;
+}
+
 /** Local branch name used for a pull request checked out into its own worktree. */
 export const prWorktreeBranch = (number: number) => `pr-${number}`;
 

@@ -591,6 +591,13 @@ describe('merge confirm', () => {
   });
 });
 
+describe('close confirm', () => {
+  it('names the pull request and says the branch is kept', () => {
+    const pr = { number: 7, title: 'Fix it', headRefName: 'fix-it', baseRefName: 'main', url: '', isDraft: false, reviewDecision: '', author: 'a', checks: 'none' as const, mergeable: '' };
+    expect(p.closeConfirmText(pr)).toBe('Close #7 "Fix it" without merging?\nThe branch fix-it is kept. You can reopen the pull request on GitHub.');
+  });
+});
+
 describe('prWorktreeBranch', () => {
   it('names the local branch after the pull request number', () => {
     expect(p.prWorktreeBranch(42)).toBe('pr-42');
