@@ -1209,6 +1209,12 @@ function registerPrs() {
   cmd('gitKitchen.pr.merge', (n: Node) => chooseMerge(n));
   cmd('gitKitchen.pr.squash', (n: Node) => mergePr(n, 'squash'));
   cmd('gitKitchen.pr.rebase', (n: Node) => mergePr(n, 'rebase'));
+  cmd('gitKitchen.pr.close', async (n: Node) => {
+    const p = n.data.pr as P.PullRequest;
+    if (!await confirm(P.closeConfirmText(p), 'Close Pull Request')) return;
+    await withProgress(`Closing #${p.number}`, () => gh(n.data.root, 'pr', 'close', String(p.number))); prCache = undefined; refreshAll();
+    vscode.window.showInformationMessage(`#${p.number} closed.`);
+  });
   cmd('gitKitchen.pr.openInWorktree', async (n: Node) => { const r = n.data.root; const p = n.data.pr as P.PullRequest; const local = P.prWorktreeBranch(p.number);
     if (await git(r, 'rev-parse', '--verify', '--quiet', `refs/heads/${local}`).then(() => true, () => false)) throw new Error(`A local branch named ${local} already exists. Use Create Worktree for This Branch on it instead.`);
     await withProgress('Fetching PR', () => git(r, 'fetch', 'origin', `pull/${p.number}/head`)); const head = (await git(r, 'rev-parse', 'FETCH_HEAD')).trim();
